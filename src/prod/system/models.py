@@ -29,6 +29,8 @@ is_active = Annotated[bool, mapped_column(Boolean
                                           , nullable=False
                                           , comment='Запись активна')
 ]
+hash_address = Annotated[str_64, mapped_column(comment='хеш сумма адреса строки (кто и где)')]
+hash_data = Annotated[str_64, mapped_column(comment='хеш сумма данных строки (что и когда)')]
 
 
 # Декларативный стиль написания
@@ -42,7 +44,7 @@ class ParamRequests(Base):
     created_at: Mapped[created_at]
     updated_at: Mapped[updated_at]
     is_active: Mapped[is_active]
-    parent: Mapped[int | None] = mapped_column(Integer, ForeignKey('param_requests.id'))
+    parent: Mapped[int | None]  # = mapped_column( ForeignKey('param_requests.id'))
     request: Mapped[str | None] = mapped_column(Text, comment='Запрос')
     response: Mapped[str | None] = mapped_column(Text, comment='Ответ')
     status: Mapped[str | None] = mapped_column(comment='Ответа.Статус')
@@ -54,68 +56,79 @@ class ParamReturn(Base):
     __table_args__ = (
         UniqueConstraint('sha256'), {
             'comment': 'Параметры ответа'
-
         }
     )
     id: Mapped[int_pk]
     created_at: Mapped[created_at]
     updated_at: Mapped[updated_at]
     is_active: Mapped[is_active]
-    sha256: Mapped[str_64 | None] = mapped_column(
-        comment='hash_sum=sha256(type_code,freq_code,period,reporter_code,flow_code,partner_code,partner2_code,cmd_code'
-    )
+    hash_address: Mapped[hash_address | None]
+    hash_data: Mapped[hash_data | None]
     param_requests_id: Mapped[int] = mapped_column(comment='ForeignKey("param_requests.id")')
-    type_code: Mapped[str | None] = mapped_column(comment='Тип торговли: C для товаров и S для услуг')
-    freq_code: Mapped[str | None] = mapped_column(comment='Частота торговли: A для годовых и M для ежемесячных')
-    ref_period_id: Mapped[str | None] = mapped_column(comment='')
-    ref_year: Mapped[str | None] = mapped_column(comment='')
-    ref_month: Mapped[str | None] = mapped_column(comment='')
+    type_code: Mapped[str | None] = mapped_column(comment='Код типа: C для товаров и S для услуг')
+    freq_code: Mapped[str | None] = mapped_column(comment='Код типа: A для годовых и M для ежемесячных')
+    ref_period_id: Mapped[str | None] = mapped_column(
+        comment='Период времени, к которому относится измеренное наблюдение')
+    ref_year: Mapped[str | None] = mapped_column(comment='Год наблюдения')
+    ref_month: Mapped[str | None] = mapped_column(
+        comment='Месяц наблюдения. Для годового значения было бы установлено значение 52')
     period: Mapped[str | None] = mapped_column(
-        comment='Год= ГГГГ Месяц = ГГГГММ.')
+        comment='Комбинация года и месяца (для месячных), год для (годовых)')
     reporter_code: Mapped[int | None] = mapped_column(
-        comment='Код репортера, ForeignKey("comtrade_reporter.foreign_id")')
-    reporter_iso: Mapped[str | None] = mapped_column(comment='')
-    reporter_desc: Mapped[str | None] = mapped_column(comment='')
-    flow_code: Mapped[str | None] = mapped_column(comment='Код направления перемещения X-Экспорт M - Импорт')
-    flow_desc: Mapped[str | None] = mapped_column(comment='')
+        comment='Страна или географический район, к которым относится измеряемое статистическое явление')
+    reporter_iso: Mapped[str | None] = mapped_column(comment='ISO 3 код репортера')
+    reporter_desc: Mapped[str | None] = mapped_column(comment='Описание репортера')
+    flow_code: Mapped[str | None] = mapped_column(
+        comment='Торговый поток или подпоток (экспорт, реэкспорт, импорт, повторный импорт и т.д.)')
+    flow_desc: Mapped[str | None] = mapped_column(comment='Описание торговых потоков')
     partner_code: Mapped[int | None] = mapped_column(
-        comment='Код партнера ForeignKey("comtrade_partner.foreign_id")')
-    partner_iso: Mapped[str_3 | None] = mapped_column(comment='ISO код страны')
-    partner_desc: Mapped[str | None] = mapped_column(comment='')
-    partner2_code: Mapped[int | None] = mapped_column(comment='Код отправителя (возможные значения - код M49 стран)')
-    partner2_iso: Mapped[str | None] = mapped_column(comment='')
-    partner2_desc: Mapped[str | None] = mapped_column(comment='')
-    classification_code: Mapped[str | None] = mapped_column(comment='')
-    classification_search_code: Mapped[str | None] = mapped_column(comment='')
+        comment='Основная страна-партнер или географический район для соответствующего торгового потока')
+    partner_iso: Mapped[str_3 | None] = mapped_column(comment='ISO 3 код 1-го партнера')
+    partner_desc: Mapped[str | None] = mapped_column(comment='Описание 1-го партнера')
+    partner2_code: Mapped[int | None] = mapped_column(
+        comment='Второстепенная страна-партнер или географический район для соответствующего торгового потока')
+    partner2_iso: Mapped[str | None] = mapped_column(comment='Код ISO 3 2-го партнера')
+    partner2_desc: Mapped[str | None] = mapped_column(comment='Описание 2-го партнера')
+    classification_code: Mapped[str | None] = mapped_column(
+        comment='Указывает используемую классификацию продукта и версию (HS, SITC).')
+    classification_search_code: Mapped[str | None] = mapped_column(
+        comment='Флажок, указывающий, представлена ли классификация по странам или нет')
     is_original_classification: Mapped[bool | None] = mapped_column(comment='')
-    cmd_code: Mapped[str | None] = mapped_column(
-        comment='Код товара, ForeignKey("comtrade_cmd_h6.foreign_id")')
-    cmd_desc: Mapped[str | None] = mapped_column(Text, comment='')
-    aggr_level: Mapped[int | None] = mapped_column(comment='Уровень агрегации')
-    is_leaf: Mapped[bool | None] = mapped_column(comment='')
-    customs_code: Mapped[str | None] = mapped_column(comment='Таможенный код')
-    customs_desc: Mapped[str | None] = mapped_column(comment='')
-    mos_code: Mapped[str | None] = mapped_column(comment='')
-    mot_code: Mapped[str | None] = mapped_column(comment='Код вида транспорта')
-    mot_desc: Mapped[str | None] = mapped_column(comment='')
-    qty_unit_code: Mapped[int | None] = mapped_column(comment='')
-    qty_unit_abbr: Mapped[str | None] = mapped_column(comment='')
-    qty: Mapped[int | None] = mapped_column(Numeric, comment='')
-    is_qty_estimated: Mapped[bool | None] = mapped_column(comment='')
-    alt_qty_unit_code: Mapped[int | None] = mapped_column(comment='')
-    alt_qty_unit_abbr: Mapped[str | None] = mapped_column(comment='')
-    alt_qty: Mapped[int | None] = mapped_column(Numeric, comment='')
-    is_alt_qty_estimated: Mapped[bool | None] = mapped_column(comment='')
-    net_wgt: Mapped[int | None] = mapped_column(Numeric, comment='')
-    is_net_wgt_estimated: Mapped[bool | None] = mapped_column(comment='')
-    gross_wgt: Mapped[int | None] = mapped_column(Numeric, comment='')
-    is_gross_wgt_estimated: Mapped[bool | None] = mapped_column(comment='')
-    cif_value: Mapped[int | None] = mapped_column(Numeric, comment='')
-    fob_value: Mapped[int | None] = mapped_column(Numeric, comment='')
-    primary_value: Mapped[int | None] = mapped_column(Numeric, comment='')
-    legacy_estimation_flag: Mapped[str | None] = mapped_column(comment='')
-    is_reported: Mapped[bool | None] = mapped_column(comment='')
-    is_aggregate: Mapped[bool | None] = mapped_column(comment='')
+    cmd_code: Mapped[str | None] = mapped_column(comment='Код продукта в сочетании с классификационным кодом')
+    cmd_desc: Mapped[str | None] = mapped_column(Text, comment='Описание категории товара/услуги')
+    aggr_level: Mapped[int | None] = mapped_column(comment='Иерархический уровень категории товара/услуги')
+    is_leaf: Mapped[bool | None] = mapped_column(
+        comment='Определение того, имеет ли код товара самый базовый уровень (т.е. подзаголовок для ТН ВЭД)')
+    customs_code: Mapped[str | None] = mapped_column(comment='Таможенная или статистическая процедура')
+    customs_desc: Mapped[str | None] = mapped_column(comment='Описание таможенной процедуры')
+    mos_code: Mapped[str | None] = mapped_column(
+        comment='Способ поставки при оказании услуг (только торговля услугами)')
+    mot_code: Mapped[str | None] = mapped_column(
+        comment='Вид транспорта, используемый, когда товары въезжают на экономическую территорию страны или покидают ее')
+    mot_desc: Mapped[str | None] = mapped_column(comment='Описание вида транспорта')
+    qty_unit_code: Mapped[int | None] = mapped_column(comment='Единица первичного количества')
+    qty_unit_abbr: Mapped[str | None] = mapped_column(comment='Аббревиатура первичной единицы измерения количества')
+    qty: Mapped[int | None] = mapped_column(Numeric, comment='Значение первичного количества')
+    is_qty_estimated: Mapped[bool | None] = mapped_column(
+        comment='Отметьте, подсчитано ли первичное количество или нет')
+    alt_qty_unit_code: Mapped[int | None] = mapped_column(comment='Единица вторичного количества')
+    alt_qty_unit_abbr: Mapped[str | None] = mapped_column(comment='Аббревиатура вторичной единицы измерения количества')
+    alt_qty: Mapped[int | None] = mapped_column(Numeric, comment='Значение вторичной величины')
+    is_alt_qty_estimated: Mapped[bool | None] = mapped_column(
+        comment='Отметьте, подсчитано ли вторичное количество или нет')
+    net_wgt: Mapped[int | None] = mapped_column(Numeric, comment='Вес нетто')
+    is_net_wgt_estimated: Mapped[bool | None] = mapped_column(comment='Отметьте, указан ли расчетный вес нетто или нет')
+    gross_wgt: Mapped[int | None] = mapped_column(Numeric, comment='Вес брутто')
+    is_gross_wgt_estimated: Mapped[bool | None] = mapped_column(
+        comment='Отметьте, указан ли расчетный вес брутто или нет')
+    cif_value: Mapped[int | None] = mapped_column(Numeric, comment='Торговые ценности в CIF')
+    fob_value: Mapped[int | None] = mapped_column(Numeric, comment='Торговые ценности на условиях FOB')
+    primary_value: Mapped[int | None] = mapped_column(Numeric,
+                                                      comment='Первичные торговые значения (взятые из значений CIF или FOB)')
+    legacy_estimation_flag: Mapped[str | None] = mapped_column(comment='Флаг оценки унаследованного количества')
+    is_reported: Mapped[bool | None] = mapped_column(comment='Флажок, указывающий, представлена ли запись по стране')
+    is_aggregate: Mapped[bool | None] = mapped_column(
+        comment='Флаг, указывающий, агрегируется ли запись с помощью UNSD')
 
 
 class ComtradeReporter(Base):
@@ -285,3 +298,16 @@ class TerritoryName(Base):
     language_id: Mapped[int] = mapped_column(Integer, ForeignKey('language.id'))
     name: Mapped[str]
     description: Mapped[str]
+
+
+class TerritoryGeo(Base):
+    __tablename__ = 'territory_geo'
+    __table_args__ = {
+        'comment': 'Территория. Координаты.'
+    }
+    id: Mapped[int_pk]
+    created_at: Mapped[created_at]
+    updated_at: Mapped[updated_at]
+    is_active: Mapped[is_active]
+    territory_id: Mapped[int] = mapped_column(Integer, ForeignKey('territory.id'))
+    geo_json: Mapped[str] = mapped_column(Text, comment='Территория. Географические координаты')
