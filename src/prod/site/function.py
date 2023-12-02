@@ -114,7 +114,6 @@ def rename_dic(dictionary):
 """"
 Здась хранится информация по унификации имен и обработка справочников из Comtrade
 """
-c
 
 
 def df_rename(df):
