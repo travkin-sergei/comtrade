@@ -42,7 +42,7 @@ class ParamRequests(Base):
     created_at: Mapped[created_at]
     updated_at: Mapped[updated_at]
     is_active: Mapped[is_active]
-    parent: Mapped[int | None]  # = mapped_column(Integer,ForeignKey('param_requests.id'))
+    parent: Mapped[int | None] = mapped_column(Integer, ForeignKey('param_requests.id'))
     request: Mapped[str | None] = mapped_column(Text, comment='Запрос')
     response: Mapped[str | None] = mapped_column(Text, comment='Ответ')
     status: Mapped[str | None] = mapped_column(comment='Ответа.Статус')
@@ -187,3 +187,101 @@ class TnVed(Base):
     date_stop: Mapped[date | None] = mapped_column(comment='Дата окончания действия')
     len_code: Mapped[int | None] = mapped_column(comment='Длинна строки колонки code')
     code: Mapped[str | None] = mapped_column(comment='Код товарной категории')
+
+
+class Language(Base):
+    __tablename__ = 'language'
+    __table_args__ = {
+        'comment': 'Языки мира'
+    }
+    id: Mapped[int_pk]
+    created_at: Mapped[created_at]
+    updated_at: Mapped[updated_at]
+    is_active: Mapped[is_active]
+    lang_name: Mapped[str | None] = mapped_column(comment='Название языка')
+
+
+class Territory(Base):
+    __tablename__ = 'territory'
+    __table_args__ = {
+        'comment': 'Территория. Идентификаторы'
+    }
+    id: Mapped[int_pk]
+    created_at: Mapped[created_at]
+    updated_at: Mapped[updated_at]
+    is_active: Mapped[is_active]
+    name: Mapped[str | None] = mapped_column(
+        comment='Территория. Названия (не регламентировано! не применять в работе)')
+
+
+class TerritoryCode(Base):
+    __tablename__ = 'territory_code'
+    __table_args__ = {
+        'comment': 'Территория. Коды'
+    }
+    id: Mapped[int_pk]
+    created_at: Mapped[created_at]
+    updated_at: Mapped[updated_at]
+    is_active: Mapped[is_active]
+    date_start: Mapped[date | None]
+    date_stop: Mapped[date | None]
+    territory_id: Mapped[int] = mapped_column(Integer, ForeignKey('territory.id'))
+    code: Mapped[str]
+    territory_code_type_id: Mapped[int] = mapped_column(Integer, ForeignKey('territory_code_type.id'))
+
+
+class TerritoryCodeType(Base):
+    __tablename__ = 'territory_code_type'
+    __table_args__ = {
+        'comment': 'Территория. Коды. Типы'
+    }
+    id: Mapped[int_pk]
+    created_at: Mapped[created_at]
+    updated_at: Mapped[updated_at]
+    is_active: Mapped[is_active]
+    code_type: Mapped[str]
+
+
+class TerritoryMainSub(Base):
+    __tablename__ = 'territory_main_sub'
+    __table_args__ = {
+        'comment': 'Территория. Связи'
+    }
+    id: Mapped[int_pk]
+    created_at: Mapped[created_at]
+    updated_at: Mapped[updated_at]
+    is_active: Mapped[is_active]
+    date_start: Mapped[date | None]
+    date_stop: Mapped[date | None]
+    territory_main: Mapped[int] = mapped_column(Integer, ForeignKey('territory.id'))
+    territory_sub: Mapped[int] = mapped_column(Integer, ForeignKey('territory.id'))
+
+
+class TerritoryMainSubName(Base):
+    __tablename__ = 'territory_main_sub_name'
+    __table_args__ = {
+        'comment': 'Территория. Связи. Названия'
+    }
+    id: Mapped[int_pk]
+    created_at: Mapped[created_at]
+    updated_at: Mapped[updated_at]
+    is_active: Mapped[is_active]
+    territory_main_sub_id: Mapped[int] = mapped_column(Integer, ForeignKey('territory_main_sub.id'))
+    territory_name_id: Mapped[int] = mapped_column(Integer, ForeignKey('territory_name.id'))
+    ranging: Mapped[int]
+    variant: Mapped[int]
+
+
+class TerritoryName(Base):
+    __tablename__ = 'territory_name'
+    __table_args__ = {
+        'comment': 'Территория. Названия.'
+    }
+    id: Mapped[int_pk]
+    created_at: Mapped[created_at]
+    updated_at: Mapped[updated_at]
+    is_active: Mapped[is_active]
+    territory_id: Mapped[int] = mapped_column(Integer, ForeignKey('territory.id'))
+    language_id: Mapped[int] = mapped_column(Integer, ForeignKey('language.id'))
+    name: Mapped[str]
+    description: Mapped[str]
