@@ -14,6 +14,13 @@ from src.prod.system.database import engine_sync
 """
 Описан вариант запросов на уровне 6 знаков за f'{}'  на все страны
 """
+
+filter_reporter = [895, 896, 897, 898, ]
+
+filter_tn_ved = ['0301SS', '0302SS', '0303SS', '0304SS', '0305SS', '0306SS', '0307SS', '0308SS', '03SS', '03SSSS',
+                 '1604SS', '210390SS', '250100SS', '811100SS', '811241SSSS', '811292SS', '811300SS', 'SS', 'SSSS',
+                 'SSSSSS', 'SSSSSSSS', 'NN', 'NNNN', 'NNNNNN', 'XX', 'XXXX', 'XXXXXX', 'SSSSSSSS', 'Резерв']
+
 type_c = 'C'  # C - товары, S услуги
 frequency = 'A'  # A - ежегодно, M - ежемесячно
 flowCode = 'M,X'  # направление перемещения X - экспорт или M - импорт - исключил из переменных
@@ -22,34 +29,29 @@ format_data = 'JSON'  # JSON', 'TXT', 'CSV'
 breakdownMode = 'classic'
 includeDesc = 'True'
 
-reporter_del = 20  # переменная, чтобы можно было изменить объем запроса
-cmd_h6_del = 40  # переменная, чтобы можно было изменить объем запроса
+reporter_del = 15  # переменная, чтобы можно было изменить объем запроса
 ###########################################################################
-period = '2022'
+period = '2022,2021,2020'
 ###########################################################################
 # Коды ТН ВЭД
-cmd_h6 = pd.read_sql_table('comtrade_cmd_h6', con=engine_sync)
-
-
-cmd_h6['len'] = cmd_h6['foreign_id'].str.len()
-cmd_h6 = cmd_h6.rename(columns={'foreign_id': 'code'})
-cmd_h6 = cmd_h6[cmd_h6['len'] == 6]  # длинна знаков
-cmd_h6 = cmd_h6[['code']]
-
+tn_ved = pd.read_sql_table('tn_ved', con=engine_sync)
+tn_ved = tn_ved[~tn_ved['code'].isin(filter_tn_ved)]
+tn_ved = tn_ved[tn_ved['len_code'].isin([2, 4, 6])]  # фильтрация по длине кода
+tn_ved = tn_ved[['code']]
 
 # Если фильтровать коды, то надо до этого места, чтобы паспорт был верный
-cmd_h6_list = cmd_h6['code'].tolist()
-cmd_h6['C'] = np.arange(cmd_h6.shape[0])
-cmd_h6['ostat'] = cmd_h6['C'] % cmd_h6_del  # ТН ВЭД
-cmd_h6 = cmd_h6[['code', 'ostat']]
-cmd_h6['code'] = cmd_h6['code'].map(str)
-cmd_h6 = cmd_h6.groupby('ostat').code.agg([('count', 'count'), ('code', ','.join)])
-cmd_h6 = cmd_h6[['code']]
-cmd_h6.reset_index(drop=True, inplace=True)
+tn_ved['gr'] = tn_ved['code'].str[:2]
+tn_ved = tn_ved[['gr', 'code', ]]
+tn_ved = tn_ved.groupby('gr')['code'].agg(list).reset_index(name='code')
+tn_ved = tn_ved.astype(str)
+tn_ved['code'] = tn_ved['code'].str.replace(' ', '')
+tn_ved['code'] = tn_ved['code'].str.replace('[', '')
+tn_ved['code'] = tn_ved['code'].str.replace(']', '')
+tn_ved['code'] = tn_ved['code'].str.replace("'", '')
 
 ###########################################################################
 reporter = pd.read_sql_table('comtrade_partner', con=engine_sync)
-
+reporter = reporter[~reporter['foreign_id'].isin(filter_reporter)]
 reporter = reporter.rename(columns={'foreign_id': 'reporter'})
 reporter = reporter[['reporter']]
 # Если фильтровать страны, то надо до этого места, чтобы паспорт был верный
@@ -63,26 +65,19 @@ reporter = reporter[['reporter']]
 reporter.reset_index(drop=True, inplace=True)
 
 ###########################################################################
-result = cmd_h6.merge(reporter, how='cross')
+result = tn_ved.merge(reporter, how='cross')
 result_json = result.to_json(orient='index')
 index_result = json.loads(result_json)
-
 # обработка результатов
 reporter_list.sort()
 reporter_list_size = len(reporter_list)
 reporter_list = ",".join([str(i) for i in reporter_list])
 reporter_size_group = math.ceil(reporter_list_size / reporter_del)
 
-cmd_h6_list.sort()
-cmd_h6_list_size = len(cmd_h6_list)
-cmd_h6_list = ",".join([str(i) for i in cmd_h6_list])
-cmd_h6_size_group = math.ceil(cmd_h6_list_size / cmd_h6_del)
-
 request_passport = {
     'type_c': 'Строка информационного запроса',
     'period': period,
     'reporterSize': reporter_size_group,
-    'cmdCodeSize': cmd_h6_size_group,
     'flowCode': flowCode,
     'maxRecords': maxRecords,
     'format': format_data,
@@ -119,7 +114,6 @@ for i in index_result:
     print(
         '\nЗапросов сформировано: 'f'{int(i) + 1}\n',
         'Рассматриваемый период: 'f'{period}\n',
-        'Размер группы reporter: 'f'{reporter_size_group} ед.\n',
-        'Размер группы cmd_h6: 'f'{cmd_h6_size_group} ед.\n'
+        'Размер группы reporter: 'f'{reporter_size_group} ед.\n'
     )
 ###########################################################################
