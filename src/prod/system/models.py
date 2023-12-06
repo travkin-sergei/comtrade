@@ -44,7 +44,7 @@ class ParamRequests(Base):
     created_at: Mapped[created_at]
     updated_at: Mapped[updated_at]
     is_active: Mapped[is_active]
-    parent: Mapped[int | None]  # = mapped_column( ForeignKey('param_requests.id'))
+    parent: Mapped[int | None] = mapped_column(Integer, ForeignKey('param_requests.id'))
     request: Mapped[str | None] = mapped_column(Text, comment='Запрос')
     response: Mapped[str | None] = mapped_column(Text, comment='Ответ')
     status: Mapped[str | None] = mapped_column(comment='Ответа.Статус')
