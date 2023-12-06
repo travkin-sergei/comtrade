@@ -54,7 +54,7 @@ class ParamRequests(Base):
 class ParamReturn(Base):
     __tablename__ = 'param_return'
     __table_args__ = (
-        UniqueConstraint('sha256'), {
+        UniqueConstraint('hash_address'), {
             'comment': 'Параметры ответа'
         }
     )
