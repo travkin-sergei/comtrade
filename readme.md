@@ -90,26 +90,26 @@
       триггер.
       + расчеты хеш суммы в базе данных и в коде по алгоритму хеширования SHA-256 будут совпадать, если строки склеивать
 ```SQL
-CREATE OR REPLACE FUNCTION public.param_return_update_sha256()
+CREATE OR REPLACE FUNCTION public.param_return_update_hash_address()
 RETURNS TRIGGER as
-$BODY$
-BEGIN
-	NEW.sha256 = encode(sha256(CAST((
-	                new.type_code    ||'+'|| new.freq_code     ||'+'||
-	                new.period       ||'+'|| new.reporter_code ||'+'||
-	                new.flow_code    ||'+'|| new.partner_code  ||'+'||
-	                new.partner2_code||'+'|| new.cmd_code
-)AS text)::bytea), 'hex') ;
-	return new;
-END;
-$BODY$ 
+	$BODY$
+	BEGIN
+		NEW.hash_address = encode(sha256(CAST((
+		                new.type_code    ||'+'|| new.freq_code     ||'+'||
+		                new.period       ||'+'|| new.reporter_code ||'+'||
+		                new.flow_code    ||'+'|| new.partner_code  ||'+'||
+		                new.partner2_code||'+'|| new.cmd_code
+	)AS text)::bytea), 'hex') ;
+		return new;
+	END;
+	$BODY$ 
 LANGUAGE plpgsql;
   
    
-CREATE TRIGGER param_return_update_sha256_TRIGGER
+CREATE TRIGGER param_return_update_hash_address_TRIGGER
 BEFORE INSERT or update on param_return
 FOR EACH ROW
-EXECUTE PROCEDURE param_return_update_sha256();
+EXECUTE PROCEDURE param_return_update_hash_address();
 ```
 
 Скорее всего потребуется построить индекс
@@ -118,7 +118,7 @@ EXECUTE PROCEDURE param_return_update_sha256();
 CREATE EXTENSION pg_trgm;
 CREATE EXTENSION btree_gin;
 
-CREATE INDEX param_return_sha256_idx ON param_return USING gin (sha256);
+CREATE INDEX param_return_hash_address_idx ON param_return USING gin (hash_address);
 ```
 
 Удалить дубликаты
