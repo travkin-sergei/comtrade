@@ -125,7 +125,7 @@ CREATE INDEX param_return_hash_address_idx ON param_return USING gin (hash_addre
 ```SQL
 with cte as
 	(select *, 
-		ROW_NUMBER() OVER(partition by sha256 order by id) as rn 
+		ROW_NUMBER() OVER(partition by hash_address order by id) as rn 
 	from param_return)
 delete from
 param_return using cte
