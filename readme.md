@@ -111,7 +111,21 @@ BEFORE INSERT or update on param_return
 FOR EACH ROW
 EXECUTE PROCEDURE param_return_update_hash_address();
 ```
+Триггер на столбец updated_at
+```
+CREATE OR REPLACE FUNCTION trigger_set_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
+CREATE TRIGGER set_timestamp
+BEFORE UPDATE ON param_return
+FOR EACH ROW
+EXECUTE FUNCTION trigger_set_timestamp();
+```
 Скорее всего потребуется построить индекс
 
 ```SQL
