@@ -112,7 +112,7 @@ FOR EACH ROW
 EXECUTE PROCEDURE param_return_update_hash_address();
 ```
 Триггер на столбец updated_at
-```
+```SQL
 CREATE OR REPLACE FUNCTION trigger_set_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
