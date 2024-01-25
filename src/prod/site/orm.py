@@ -4,6 +4,8 @@ from src.prod.system.models import ParamRequests, ParamReturn
 """
 Когда-нибудь здесь сюда перенесем все обращения 
 """
+
+
 def OrmParamReturn_Insert(dictionary):
     """
     Функция для записи в модель InfoColumn
@@ -15,7 +17,7 @@ def OrmParamReturn_Insert(dictionary):
             session.execute(ParamReturn.__table__.insert(), dictionary)
             session.commit()
         except:
-            print('ошибка')
+            pass
 
 
 def OrmParamRequests_Insert(dictionary: dict, id: int):
