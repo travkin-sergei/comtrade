@@ -1,10 +1,14 @@
 import hashlib
-from array import array
-
+from datetime import time
+import time
+import json
 import requests
 import pandas as pd
 from src.prod.site.core import deactivateData, updateData
 from src.prod.system.database import engine_sync
+
+MAX_METRIX = 3  # Количество повторов запроса в случае ошибки
+
 
 def calculate_hash_sum(list: list):
     # Предполагается, что сравнить хеш сумму можно будет до вставки в базу данных
@@ -111,6 +115,8 @@ def rename_dic(dictionary):
     dictionary['is_aggregate'] = dictionary['isAggregate']
     del dictionary['isAggregate']
     return dictionary
+
+
 """"
 Здась хранится информация по унификации имен и обработка справочников из Comtrade
 """
@@ -220,7 +226,11 @@ def df_hash_sum(df):
 
 
 def updateTablComtrade(number, tabl_name):
-    # Получаем данные из Comtrade
+    """
+    Получаем справочники из Comtrade
+    :number: номер таблицы
+    :tabl_name:
+    """
     link = r'https://comtradeapi.un.org/files/v1/app/reference/ListofReferences.json'
     comtrade_json = requests.get(requests.get(link).json()['results'][number]['fileuri']).json()['results']
     external = pd.DataFrame.from_dict(comtrade_json, orient='columns')
@@ -256,3 +266,56 @@ def updateTablComtrade(number, tabl_name):
         print(db_update.info())
         updateData(db_update, tabl_name)
         print('Записи обновлены')
+
+
+def is_json(myjson):
+    """ проверка json это или нет"""
+    try:
+        json.loads(myjson)
+    except ValueError as e:
+        return False
+    return True
+
+
+def comtrade_key(address):
+    """
+    Загрузка ключей Comtrade. Ключи необходимо взять на сайте https://comtradeplus.un.org
+    """
+    with open(address) as f:
+        lines = [line.rstrip() for line in f]
+    return lines
+
+
+def get_requests(url, params):
+    for i in range(MAX_METRIX):
+        try:
+            r = requests.get(url, params=params)
+            r.encoding = 'utf-8'
+            time.sleep(12)
+            print(r.url)
+            break  # если все хорошо, то прекращаем
+        except:
+            print("Доступа нет")
+            # Если слабый интернет, то ошибка не обрабатывается и скрипт падает замертво
+            # Если все плохо, то вернем хотя бы что-то
+    return r
+
+
+def split_dic(sssss):
+    aaa = sssss.split(',')
+    ret = []
+    str_0 = []
+    str_1 = []
+    for idx, obj in enumerate(aaa):
+        www = idx % 2
+        if www == 0:
+            str_0.append(obj)
+        elif www == 1:
+            str_1.append(obj)
+        else:
+            print("Критическая ошибка разбивки данных")
+            exit()
+    ret.append(str_0)
+    if str_1 != []:
+        ret.append(str_1)
+    return ret

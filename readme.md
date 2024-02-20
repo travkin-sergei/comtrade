@@ -119,6 +119,11 @@ CREATE EXTENSION pg_trgm;
 CREATE EXTENSION btree_gin;
 
 CREATE INDEX param_return_hash_address_idx ON param_return USING gin (hash_address);
+
+CREATE INDEX index_reporter_code ON param_return USING GIST (reporter_code)
+
+/* Индес пригодится для скачивания по странам таблица comtrade_return столбец reporter_code*/
+CREATE INDEX index_reporter_code_comtrade_return ON comtrade_return (reporter_code)
 ```
 
 Удалить дубликаты

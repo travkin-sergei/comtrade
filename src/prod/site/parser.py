@@ -1,82 +1,23 @@
 from plyer import notification
 import winsound
-import time
 import datetime
-import json
-import requests
-from src.prod.site.function import df_message
+from src.prod.site.function import df_message, get_requests, is_json, split_dic, comtrade_key, rename_dic
 from src.prod.site.list_error import list_error, get_key_dict37
 from src.prod.site.orm import (
-    OrmParamReturn_Insert,
-    OrmParamRequests_Insert,
-    OrmParamRequests_Select,
-    OrmParamRequests_Update,
+    OrmComtradeReturnInsert,
+    OrmComtradeRequestsInsert,
+    OrmComtradeRequests_Select,
+    OrmComtradeRequests_Update,
 )
-from src.prod.site.function import rename_dic
 
 DURATION = 1000  # Звуковой сигнал об ошибке
 FREQUENCY = 300  # Звуковой сигнал об ошибке
-MAX_METRIX = 3  # Количество повторов запроса в случае ошибки
 
-
-def is_json(myjson):
-    try:
-        json.loads(myjson)
-    except ValueError as e:
-        return False
-    return True
-
-
-def key(address):
-    """
-    Загрузка ключей Comtrade. Ключи необходимо взять на сайте https://comtradeplus.un.org
-    """
-    with open(address) as f:
-        lines = [line.rstrip() for line in f]
-    return lines
-
-
-def get_requests(url, params):
-    for i in range(MAX_METRIX):
-        try:
-            r = requests.get(url, params=params, timeout=40)
-            r.encoding = 'utf-8'
-            time.sleep(12)
-            r.raise_for_status()
-            print(r.url)
-            break  # если все хорошо, то прекращаем
-        except:
-            print("Доступа нет")
-            # Если слабый интернет, то ошибка не обрабатывается и скрипт падает замертво
-            # Если все плохо, то вернем хотя бы что-то
-    return r
-
-
-def split_dic(sssss):
-    aaa = sssss.split(',')
-    ret = []
-    str_0 = []
-    str_1 = []
-    for idx, obj in enumerate(aaa):
-        www = idx % 2
-        if www == 0:
-            str_0.append(obj)
-        elif www == 1:
-            str_1.append(obj)
-        else:
-            print("Критическая ошибка разбивки данных")
-            exit()
-    ret.append(str_0)
-    if str_1 != []:
-        ret.append(str_1)
-    return ret
-
-
-key = key(r'../../../key.txt')
+key = comtrade_key(r'../../../key.txt')
 
 url = 'https://comtradeapi.un.org/data/v1/get/{}/{}/HS'
 
-requests_plan = OrmParamRequests_Select()
+requests_plan = OrmComtradeRequests_Select()
 obj_list = requests_plan[0]
 obj_counter = requests_plan[1]
 
@@ -94,7 +35,6 @@ for idx, obj in enumerate(obj_list):
     obj_request = eval(obj.request)
     obj_request['typeCode'], obj_request['freqCode'] = 'C', 'A'
     type_code, freq_code = obj_request['typeCode'], obj_request['freqCode']
-
     url = url.format(obj_request['typeCode'], obj_request['freqCode'])
     del obj_request['typeCode']
     del obj_request['freqCode']
@@ -184,8 +124,8 @@ for idx, obj in enumerate(obj_list):
                 string_i = ','.join(i)
 
                 obj_request['reporterCode'] = string_i
-                OrmParamRequests_Insert(obj_request, obj_id)
-                OrmParamRequests_Update(param_return, obj_id)
+                OrmComtradeRequestsInsert(obj_request, obj_id)
+                OrmComtradeRequests_Update(param_return, obj_id)
 
         elif len(reporterCode_split) == 1:
             for ii in cmdCode_split:
@@ -193,11 +133,11 @@ for idx, obj in enumerate(obj_list):
                 string_ii = ','.join(ii)
 
                 obj_request['cmdCode'] = string_ii
-                OrmParamRequests_Insert(obj_request, obj_id)
-                OrmParamRequests_Update(param_return, obj_id)
+                OrmComtradeRequestsInsert(obj_request, obj_id)
+                OrmComtradeRequests_Update(param_return, obj_id)
 
     if param_return['status'] == '200' and param_return['size'] == 0:
-        OrmParamRequests_Update(param_return, obj_id)
+        OrmComtradeRequests_Update(param_return, obj_id)
         """"
         Здесь можно дописать логику исключения нижестоящих запросов по периоду, чтобы изменить план запроса
         """
@@ -208,28 +148,28 @@ for idx, obj in enumerate(obj_list):
                 data_dic = rename_dic(item)
                 data_dic['param_requests_id'] = obj_id
                 data_dic['is_active'] = True
-                OrmParamReturn_Insert(data_dic)
-            OrmParamRequests_Update(param_return, obj_id)
+                OrmComtradeReturnInsert(data_dic)
+            OrmComtradeRequests_Update(param_return, obj_id)
         except:
             winsound.Beep(FREQUENCY, DURATION)
             print('Ошибка записи данных!!!')
             notification.notify(message='Ошибка записи данных!!!', app_name='Comtrade', title='Экстренная остановка')
             param_return['status'] = '404'
-            OrmParamRequests_Update(param_return, obj_id)
+            OrmComtradeRequests_Update(param_return, obj_id)
             exit()
     # точка выхода
     list_stop = ['429', '404', '403']
     if param_return['status'] in list_stop:
         notification.notify(message='Ошибка!!!', app_name='Comtrade', title='Экстренная остановка')
-        OrmParamRequests_Update(param_return, obj_id)
+        OrmComtradeRequests_Update(param_return, obj_id)
         print(param_return['message'])
         exit()
     time_stop = datetime.datetime.now().replace(microsecond=0)
     data_inf = (time_stop - time_start)
     print(obj_request)
     print(
-        'Выполнено 'f'{percentage_value}', 'за 'f'{data_inf}',
-        'Расчетное время завершения ~ 'f'{time_start + (data_inf / (idx + 1) * obj_counter)}\n',
-        '_status:', f'{param_return["status"]}', '_size:', f'{param_return["size"]}',
+        f'Выполнено {percentage_value} за {data_inf}. '
+        f'Расчетное время завершения ~ {time_start + (data_inf / (idx + 1) * obj_counter)}\n',
+        f'_status: {param_return["status"]}_size: {param_return["size"]}',
     )
 notification.notify(message='Программа выполнена успешно', app_name='Comtrade', title='Готово')
