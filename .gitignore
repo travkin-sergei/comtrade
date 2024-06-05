@@ -1,4 +1,4 @@
 .idea
 /venv/
 /key.txt
-/test.env
+/.env
