@@ -1,50 +1,60 @@
 """
-Операции с моделью данных.
+Операцию сожержит описание операции с моделью данных.
+
+Обратите внимание на hash_sum_256. Эта функция для получения адреса данных
 """
 
 import hashlib
 import json
+import logging
 import sys
+from datetime import datetime
 
-from comtrade.database import session_sync
-from comtrade.log import logConnect
-from comtrade.models import (
+from .database import session_sync
+from .models import (
     VersionData,
     ParamReturn,
     Code,
     PartnerAreas,
 )
 
-log = logConnect()
+logging.basicConfig(
+    level=logging.INFO,  # Уровень логирования
+    format='%(asctime)s - %(levelname)s - %(message)s',  # Формат сообщений
+    handlers=[
+        logging.StreamHandler()  # Вывод в терминал
+    ]
+)
 
 
-def hash_sum_256(*args):
+def hash_sum_256(*args) -> str:
+    """Создание sha256. Примаем данные, приводим в нижний регистр и соединяем в строку через '+'"""
+
     try:
         list_str = [str(i).lower() for i in args]
         list_union = '+'.join(list_str)
         ha256 = hashlib.sha256(list_union.encode()).hexdigest()
         return ha256
     except Exception as error:
-        log.exception(f'def {sys._getframe().f_code.co_name}: {error}')
+        logging.info((f'def {sys._getframe().f_code.co_name}: {error}'))
 
 
 def orm_param_return(initial_json: json, dataset_checksum: int) -> None:
-    """
-    Добавление данных в таблицу ParamReturn
-    """
+    """Добавление данных в таблицу ParamReturn"""
+
     for i_json in initial_json.get('data'):
 
         try:
             i_json["hash_address"] = hash_sum_256(
-                i_json["typeCode"],
-                i_json["freqCode"],
-                i_json["period"],
-                i_json["reporterCode"],
-                i_json["flowCode"],
-                i_json["partnerCode"],
-                i_json["cmdCode"],
+                dataset_checksum,  # хеш сумма датасета по стране  (версия) от поставщика данных
+                i_json.get("period"),  # дата отчета
+                i_json.get("reporterCode"),  # отсчитавшаяся страна
+                i_json.get("flowCode"),  # напраление перемещения
+                i_json.get("partnerCode"),  # страна - торговый партнер по которой отчитываются
+                i_json.get("cmdCode"),  # код ТН ВЭД
             )
             new_row = {
+                "updated_at": datetime.now(),
                 "is_active": True,
                 "hash_address": i_json.get('hash_address'),
                 "type_code": i_json.get('typeCode'),
@@ -95,29 +105,36 @@ def orm_param_return(initial_json: json, dataset_checksum: int) -> None:
                 "is_aggregate": i_json.get('isAggregate'),
                 "dataset_checksum": dataset_checksum,
             }
+
             with session_sync() as session:
                 old_obj = session.query(ParamReturn).filter_by(hash_address=new_row.get("hash_address")).first()
                 if old_obj is None:
                     stmt = ParamReturn(**new_row)
                     session.add(stmt)
                     session.commit()
+                    logging.info(f"def {sys._getframe().f_code.co_name} row add: {new_row.get("hash_address")}")
+                else:
+                    logging.info(f"def {sys._getframe().f_code.co_name} row duplication: {new_row.get("hash_address")}")
         except Exception as error:
-            print(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
-            log.exception(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
+            logging.error(
+                f'"message" : "def {sys._getframe().f_code.co_name}. The database refuse to record data",'
+                f'"error": "{error}", '
+                f'"data": "{new_row}"'
+            )
 
 
 def save_partner_areas(initial_json: json) -> None:
-    """
-    Добавление данных в таблицу partnerAreas.
-    """
+    """Добавление данных в таблицу partnerAreas."""
+
     for i_json in initial_json.get('results'):
         try:
             i_json["hash_address"] = hash_sum_256(
-                i_json["id"],
+                i_json.get("id"),
             )
             new_row = {
-                "hash_address": i_json.get('hash_address'),
+                "updated_at": datetime.now(),
                 "is_active": True,
+                "hash_address": i_json.get('hash_address'),
                 "foreign_id": i_json.get('id'),
                 "text": i_json.get('text'),
                 "partner_code": i_json.get('PartnerCode'),
@@ -134,9 +151,12 @@ def save_partner_areas(initial_json: json) -> None:
                     stmt = PartnerAreas(**new_row)
                     session.add(stmt)
                     session.commit()
+
+                    logging.info(f"def {sys._getframe().f_code.co_name} row add: {new_row.get("hash_address")}")
+                else:
+                    logging.info(f"def {sys._getframe().f_code.co_name} row duplication: {new_row.get("hash_address")}")
         except Exception as error:
-            print(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
-            log.exception(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
+            logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
 
 
 def save_version_data(incoming_data: json) -> None:
@@ -144,8 +164,10 @@ def save_version_data(incoming_data: json) -> None:
     Сохранить данные в таблицу VersionData.
     Для этого необходимо иметь модель данных
     """
+
     for i_data in incoming_data.get('data'):
         new_row = {
+            "updated_at": datetime.now(),
             "is_active": True,
             "dataset_code": i_data.get('datasetCode'),
             "type_code": i_data.get('typeCode'),
@@ -187,8 +209,7 @@ def save_version_data(incoming_data: json) -> None:
                 session.commit()
 
         except Exception as error:
-            print(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
-            log.exception(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
+            logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
 
 
 def get_hs_version_data() -> list:
@@ -196,6 +217,7 @@ def get_hs_version_data() -> list:
     Получить все версии систем кодировки
     :return: list
     """
+
     try:
         with session_sync() as session:
             old_obj = session.query(VersionData.classification_code).filter_by(is_active=True).distinct()
@@ -204,16 +226,20 @@ def get_hs_version_data() -> list:
             result = [code[0] for code in old_obj.all()]
         return result
     except Exception as error:
-        print(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
-        log.exception(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
+        logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
 
 
 def save_hs(incoming_data: json, i_hs: str) -> None:
     """Запись данных версии кодов ТН ВЭД."""
+
     for i_data in incoming_data.get('results'):
         try:
-            i_data["hash_address"] = hash_sum_256(i_data.get('id'), i_hs)
-            new_data = {
+            i_data["hash_address"] = hash_sum_256(
+                i_data.get('id'), i_hs
+            )
+            new_row = {
+                "updated_at": datetime.now(),
+                "is_active": True,
                 "hash_address": i_data.get('hash_address'),
                 "hs": i_hs,
                 "cmd_code": i_data.get('id'),
@@ -224,14 +250,17 @@ def save_hs(incoming_data: json, i_hs: str) -> None:
                 "standard_unit_abbr": i_data.get('standardUnitAbbr'),
             }
             with session_sync() as session:
-                old_obj = session.query(Code).filter_by(hash_address=new_data.get("hash_address")).first()
+                old_obj = session.query(Code).filter_by(hash_address=new_row.get("hash_address")).first()
                 if old_obj is None:
-                    stmt = Code(**new_data)
+                    stmt = Code(**new_row)
                     session.add(stmt)
                     session.commit()
+
+                    logging.info(f"def {sys._getframe().f_code.co_name} row add: {new_row.get("hash_address")}")
+                else:
+                    logging.info(f"def {sys._getframe().f_code.co_name} row duplication: {new_row.get("hash_address")}")
         except Exception as error:
-            print(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
-            log.exception(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
+            logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
 
 
 def get_country_version_data() -> list:
@@ -239,6 +268,7 @@ def get_country_version_data() -> list:
     Получить список стран из VersionData
     :return: list
     """
+
     try:
         with session_sync() as session:
             old_obj = session.query(
@@ -251,13 +281,13 @@ def get_country_version_data() -> list:
             ).filter_by(is_active=True).all()  # Используем .all() для получения всех результатов
             return old_obj  # Возвращаем список записей
     except Exception as error:
-        print(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
-        log.exception(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
+        logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
         return []  # Возвращаем пустой список в случае ошибки
 
 
 def update_version_data(dataset_checksum: int) -> None:
     """Обновить версию справочника (снять отметку активности)."""
+
     try:
         with session_sync() as session:
             old_obj = session.query(VersionData).filter_by(dataset_checksum=dataset_checksum).first()
@@ -265,8 +295,6 @@ def update_version_data(dataset_checksum: int) -> None:
                 old_obj.is_active = False
                 session.commit()
             else:
-                print(f'No record found with dataset_checksum: {dataset_checksum}')
-                log.warning(f'No record found with dataset_checksum: {dataset_checksum}')
+                logging.warning((f'No record found with dataset_checksum: {dataset_checksum}'))
     except Exception as error:
-        print(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
-        log.exception(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
+        logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
