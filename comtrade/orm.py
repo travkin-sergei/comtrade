@@ -9,12 +9,13 @@ import json
 import logging
 import sys
 from datetime import datetime
+from operator import truediv
 
 from .database import session_sync
 from .models import (
     VersionData,
     ParamReturn,
-    Code,
+    HsCode,
     PartnerAreas,
     ErrorRequest,
     TradeRegimes,
@@ -41,7 +42,7 @@ def hash_sum_256(*args) -> str:
         logging.info((f'def {sys._getframe().f_code.co_name}: {error}'))
 
 
-def orm_param_return(initial_json: json, dataset_checksum: int) -> None:
+def add_param_return(initial_json: json, dataset_checksum: int) -> None:
     """Добавление данных в таблицу ParamReturn"""
 
     for i_json in initial_json.get('data'):
@@ -123,6 +124,20 @@ def orm_param_return(initial_json: json, dataset_checksum: int) -> None:
                 f'"error": "{error}", '
                 f'"data": "{new_row}"'
             )
+
+
+def update_param_return(checksum: int, is_active=False):
+    """Обновляем все записи, по dataset_checksum"""
+
+    try:
+        with session_sync() as session:
+            updated_obj = session.query(ParamReturn).filter_by(
+                dataset_checksum=checksum
+            ).update({"is_active": is_active})
+            session.commit()
+            logging.info(f'Updated {updated_obj} rows')
+    except Exception as error:
+        logging.error(f'def {sys._getframe().f_code.co_name}. The database refused to record data: {error}')
 
 
 def save_partner_areas(initial_json: json) -> None:
@@ -300,7 +315,7 @@ def get_hs_version_data() -> list:
         logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
 
 
-def save_hs(incoming_data: json, i_hs: str) -> None:
+def save_hs_code(incoming_data: json, i_hs: str) -> None:
     """Запись данных версии кодов ТН ВЭД."""
 
     for i_data in incoming_data.get('results'):
@@ -321,9 +336,9 @@ def save_hs(incoming_data: json, i_hs: str) -> None:
                 "standard_unit_abbr": i_data.get('standardUnitAbbr'),
             }
             with session_sync() as session:
-                old_obj = session.query(Code).filter_by(hash_address=new_row.get("hash_address")).first()
+                old_obj = session.query(HsCode).filter_by(hash_address=new_row.get("hash_address")).first()
                 if old_obj is None:
-                    stmt = Code(**new_row)
+                    stmt = HsCode(**new_row)
                     session.add(stmt)
                     session.commit()
 
@@ -356,46 +371,81 @@ def get_country_version_data() -> list:
         return []  # Возвращаем пустой список в случае ошибки
 
 
-def update_version_data(dataset_checksum: int) -> None:
+def update_version_data(dataset_checksum: int, is_active: bool) -> None:
     """Обновить версию справочника (снять отметку активности)."""
 
     try:
         with session_sync() as session:
-            old_obj = session.query(VersionData).filter_by(dataset_checksum=dataset_checksum).first()
-            if old_obj is not None:
-                old_obj.is_active = False
-                session.commit()
+            # Обновляем все записи, соответствующие dataset_checksum
+            updated_obj = session.query(VersionData).filter_by(
+                dataset_checksum=dataset_checksum
+            ).update({"is_active": is_active})
+            session.commit()
+
+            if updated_obj > 0:
+                logging.info(f'Updated {updated_obj} rows with dataset_checksum: {dataset_checksum}.')
             else:
-                logging.warning((f'No record found with dataset_checksum: {dataset_checksum}'))
+                logging.warning(f'No records found with dataset_checksum: {dataset_checksum}.')
     except Exception as error:
-        logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
+        logging.error(f'def {sys._getframe().f_code.co_name}. The database refused to record data: {error}')
 
 
-def save_error_request(url: str, param: dict, status_code: int, resp_code: int) -> None:
+def save_error_request(checksum: int, status: int, resp_code: int) -> None:
     """Сохранение данных об ошибках при запросе."""
-
-    param.pop("subscription-key")  # перед записью ключ требуется удалить
     try:
+        hash_address = hash_sum_256(checksum, status, resp_code)
+        updated_at = datetime.now()
+
         new_row = {
-            "updated_at": datetime.now(),
+            "updated_at": updated_at,
             "is_active": True,
-            "hash_address": hash_sum_256(url, param, str(status_code), str(resp_code)),
-            "url": url,
-            "param": str(param),
-            "status_code": status_code,
+            "hash_address": hash_address,
+            "dataset_checksum": checksum,
+            "status_code": status,
             "resp_code": resp_code,
         }
+
         with session_sync() as session:
-            old_obj = session.query(ErrorRequest).filter_by(hash_address=new_row.get("hash_address")).first()
-            if old_obj is None:  # Добавление
-                stmt = ErrorRequest(**new_row)
-                session.add(stmt)
-                session.commit()
-                logging.info(f"def {sys._getframe().f_code.co_name} row add: {new_row.get('hash_address')}")
-            else:  # Обновление
-                old_obj.updated_at = datetime.now()
+            old_obj = session.query(ErrorRequest).filter_by(hash_address=hash_address).first()
+            if old_obj is None:
+                session.add(ErrorRequest(**new_row))
+                action = "add"
+            else:
+                old_obj.updated_at = updated_at
                 old_obj.is_active = True
-                session.commit()
-                logging.info(f"def {sys._getframe().f_code.co_name} row update: {new_row.get('hash_address')}")
+                action = "update"
+
+            session.commit()
+            logging.info(f"def {sys._getframe().f_code.co_name} row {action}: {hash_address}")
+    except Exception as error:
+        logging.error(f'def {sys._getframe().f_code.co_name}. The database refused to record data: {error}')
+
+
+def get_error_request() -> list:
+    """Запросить список dataset_checksum."""
+
+    try:
+        with session_sync() as session:
+            old_obj = session.query(ErrorRequest.dataset_checksum).filter_by(is_active=True).all()
+            return old_obj  # Возвращаем список записей
+    except Exception as error:
+        logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
+        return []  # Возвращаем пустой список в случае ошибки
+
+
+def update_error_request(dataset_checksum: int) -> None:
+    """Обновляем все записи, соответствующие dataset_checksum"""
+
+    try:
+        with (session_sync() as session):
+            updated_rows = session.query(ErrorRequest).filter_by(
+                dataset_checksum=dataset_checksum
+            ).update({"is_active": False})
+            session.commit()
+
+            if updated_rows > 0:
+                logging.info(f'Updated {updated_rows} rows with dataset_checksum: {dataset_checksum}.')
+            else:
+                logging.warning(f'No records found with dataset_checksum: {dataset_checksum}.')
     except Exception as error:
         logging.error(f'def {sys._getframe().f_code.co_name}. The database refused to record data: {error}')

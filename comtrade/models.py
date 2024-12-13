@@ -35,7 +35,7 @@ class ParamReturn(Base):
             "schema": "comtrade",
             'comment': """{
                 "name":"Параметры ответа",
-                "description":"https://comtradeapi.un.org/data/v1/get/{param['typeCode']}/{param['freqCode']}/HS?...",
+                "npa":"https://comtradeapi.un.org/data/v1/get/{param['typeCode']}/{param['freqCode']}/HS?...",
         }"""
         }
     )
@@ -152,7 +152,7 @@ class PartnerAreas(Base):
         "schema": "comtrade",
         'comment': """{
             "name":"Справочник территорий (partnerAreas)",
-            "description":"https://comtradeapi.un.org/files/v1/app/reference/partnerAreas.json",
+            "npa":"https://comtradeapi.un.org/files/v1/app/reference/partnerAreas.json",
         }"""
     }
 
@@ -193,15 +193,16 @@ class PartnerAreas(Base):
     is_group = Column(Boolean, nullable=False)
 
 
-class Code(Base):
+class HsCode(Base):
     """Список кодов гармонизированной системы Comtrade. Анализ показал, что он не полный."""
 
-    __tablename__ = 'code'
+    __tablename__ = 'hs_code'
     __table_args__ = {
         "schema": "comtrade",
         'comment': """{
             "name":"Справочник гармонизированой системы (HS)",
-            "description": https://comtradeapi.un.org/files/v1/app/reference/H0.json и прочие Н1,Н2 ...",
+            "description":"От H0 далее перебираем Н1,Н2, ...",
+            "npa": "https://comtradeapi.un.org/files/v1/app/reference/H0.json",
         }
         """
     }
@@ -246,7 +247,7 @@ class VersionData(Base):
         "schema": "comtrade",
         'comment': """{
             "name":"Версия данных",
-            "description":"https://comtradeapi.un.org/public/v1/getDA/C/A/HS",
+            "npa":"https://comtradeapi.un.org/public/v1/getDA/C/A/HS",
         }
         """
     }
@@ -303,46 +304,6 @@ class VersionData(Base):
     last_released = Column(DateTime, nullable=True, comment='{"name":"дата обновления"}')
 
 
-class ErrorRequest(Base):
-    """Хранение запросов с ошибкой."""
-
-    __tablename__ = 'error_request'
-    __table_args__ = {
-        "schema": "comtrade",
-        'comment': """{
-            "name":"ошибки запросов",
-            "description":"Здесь хранятся ошибки возникшие при запросах",
-        }
-        """
-    }
-    id = Column(Integer, primary_key=True)
-    created_at = Column(
-        DateTime,
-        server_default=func.now(),
-        comment='{"name":"Дата создания записи"}'
-    )
-    updated_at = Column(
-        DateTime, server_default=func.now(),
-        server_onupdate=func.now(),
-        comment='{"name":"Дата обновления записи"}'
-    )
-    is_active = Column(
-        Boolean,
-        server_default=true(),
-        nullable=False,
-        comment='{"name":"Запись активна"}'
-    )
-    hash_address = Column(
-        String,
-        nullable=True,
-        comment='{"name":"хеш сумма адреса строки","description":"url+param+status+resp_code",}'
-    )
-    url = Column(String, nullable=False, comment='{"name":"Адрес запроса"}')
-    param = Column(Text, nullable=False, comment='{"name":"Параметры запроса"}')
-    status_code = Column(Integer, nullable=False, comment='{"name":"Статус код get запроса"}')
-    resp_code = Column(Integer, nullable=False, comment='{"name":"Код в теле ответа"}')
-
-
 class TradeRegimes(Base):
     """Хранение запросов с ошибкой."""
 
@@ -380,3 +341,45 @@ class TradeRegimes(Base):
     )
     flow_code = Column(String, nullable=False, comment='{"name":"Код потока"}')
     flow_desc = Column(String, nullable=False, comment='{"name":"Расшифровка кода торгового потока"}')
+
+
+class ErrorRequest(Base):
+    """Хранение запросов с ошибкой."""
+
+    __tablename__ = 'error_request'
+    __table_args__ = {
+        "schema": "comtrade",
+        'comment': """{
+            "name":"ошибки запросов",
+            "description":"Здесь хранятся ошибки возникшие при запросах",
+        }
+        """
+    }
+    id = Column(Integer, primary_key=True)
+    created_at = Column(
+        DateTime,
+        server_default=func.now(),
+        comment='{"name":"Дата создания записи"}'
+    )
+    updated_at = Column(
+        DateTime, server_default=func.now(),
+        server_onupdate=func.now(),
+        comment='{"name":"Дата обновления записи"}'
+    )
+    is_active = Column(
+        Boolean,
+        server_default=true(),
+        nullable=False,
+        comment='{"name":"Запись активна"}'
+    )
+    hash_address = Column(
+        String,
+        nullable=True,
+        comment='{"name":"хеш сумма адреса строки","description":"dataset_checksum",}'
+    )
+    dataset_checksum = Column(
+        BigInteger,
+        comment='{"name":"хеш сумма данных", "description":"покаждой стране за отпределенный приод уникальная"}'
+    )
+    status_code = Column(Integer, nullable=False, comment='{"name":"Статус код get запроса"}')
+    resp_code = Column(Integer, nullable=False, comment='{"name":"Код в теле ответа"}')

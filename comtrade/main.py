@@ -11,7 +11,7 @@ response = requests.get(..., verify=False)
 CHUNK_SIZE - Количество ТН ВЭД
 * Количество потенциальных территорий (не стран)
 * количество запрошенных ТН ВЭД (CHUNK_SIZE)
-* количество направлений перемещений ("M,X")
+* количество направлений перемещений ("M,X, и т.д.")
 
 `len(PartnerAreas) * CHUNK_SIZE * len("M","X") < 100_000`
 
@@ -29,23 +29,27 @@ from sqlalchemy.orm import sessionmaker
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .database import session_sync, engine, COMTRADE_KEY
-from .models import Code, Base
+from .models import HsCode, Base, ParamReturn
 from .orm import (
-    orm_param_return,
+    add_param_return,
     save_partner_areas,
     save_version_data,
     get_hs_version_data,
-    save_hs,
+    save_hs_code,
     get_country_version_data,
-    update_version_data, save_error_request, save_trade_regimes, get_trade_regimes,
+    update_version_data,
+    save_error_request,
+    save_trade_regimes,
+    get_trade_regimes,
+    get_error_request, update_error_request, update_param_return,
 )
 
 CHUNK_SIZE = 100
 MAX_COUNT = 100_000  # Лимит количества строк отображения
-TIMEOUT = 30  # это ограничение отмечено в документации сервера
+TIMEOUT = 30  # Это ограничение отмечено в документации сервера
 BASE_URL = 'https://comtradeapi.un.org'
 
-# количество ключей пропорционально количеству задач
+# Количество ключей пропорционально количеству задач
 SUBSCRIPTION_KEYS = COMTRADE_KEY
 
 
@@ -90,29 +94,32 @@ def record_row(param: dict, dataset_checksum: int, subscription_key: str) -> Non
     try:
         response = requests.get(url, param, verify=False)
         status_code = response.status_code
-        resp_code = response.json().get('statusCode')
+        data = response.json()
+        reporter_code = data.get('reporterCode')
+        period = data.get('period')
+        resp_code = data.get('statusCode')
 
         # Проверка статуса ответа
         if status_code == 200:
             if response.json().get('count') == MAX_COUNT:
-                save_error_request(url, param, status_code, resp_code)
+                save_error_request(dataset_checksum, status_code, resp_code)
                 logging.error(f"status_code:{resp_code}")
             elif resp_code == 429:
-                save_error_request(url, param, status_code, resp_code)
+                save_error_request(dataset_checksum, status_code, resp_code)
                 logging.error(f"status_code:{resp_code}")
             else:  # только если все хорошо записываем
-                orm_param_return(response.json(), dataset_checksum)
+                add_param_return(response.json(), dataset_checksum)
         elif status_code == 404:
-            save_error_request(url, param, status_code, resp_code)
+            save_error_request(dataset_checksum, status_code, resp_code)
             logging.error("Error 404: Resource not found.")
         elif status_code == 403:
-            save_error_request(url, param, status_code, resp_code)
+            save_error_request(dataset_checksum, status_code, resp_code)
             logging.error("Error 403: Forbidden access.")
         elif status_code == 500:
-            save_error_request(url, param, status_code, resp_code)
+            save_error_request(dataset_checksum, status_code, resp_code)
             logging.error("Error 500: Internal server error.")
         else:
-            save_error_request(url, param, status_code, resp_code)
+            save_error_request(dataset_checksum, status_code, resp_code)
             logging.error(f"Unexpected error: {status_code} - {response.text}")
 
 
@@ -133,6 +140,7 @@ def main() -> None:
      """
 
     session_sync = sessionmaker(bind=engine)
+
     try:
         create_table()
         save_version_data(requests.get(f'{BASE_URL}/public/v1/getDA/C/A/HS', verify=False).json())
@@ -141,15 +149,28 @@ def main() -> None:
 
         for hs in get_hs_version_data():
             """Перебор версий HS."""
-            save_hs(requests.get(f'{BASE_URL}/files/v1/app/reference/{hs}.json', verify=False).json(), hs)
+            save_hs_code(requests.get(f'{BASE_URL}/files/v1/app/reference/{hs}.json', verify=False).json(), hs)
 
-        for i_version_data in get_country_version_data():
+        for i_version in get_country_version_data():
             """Перебор кодов стран."""
+
+            # Перед записью деактивировать все конкурентные записи
             with session_sync() as session:
-                cmd_code_list = session.query(Code.cmd_code).filter_by(
+                # Из существующих записей получить старую dataset_checksum
+                checksum_old = session.query(ParamReturn.dataset_checksum).filter_by(
+                    is_active=True, period=i_version.period, reporter_code=i_version.reporter_code,
+                ).first()
+                if checksum_old:
+                    update_param_return(checksum=checksum_old.dataset_checksum, is_active=False)  # Снять активность
+                else:
+                    logging.info("No active records found for the given period and reporter_code.")
+
+            with session_sync() as session:
+                # Получение списка ТН ВЭД
+                cmd_code_list = session.query(HsCode.cmd_code).filter_by(
                     is_active=True,
-                    hs=i_version_data.classification_code
-                ).order_by(Code.cmd_code).all()
+                    hs=i_version.classification_code
+                ).order_by(HsCode.cmd_code).all()
 
                 cmd_codes = [code.cmd_code for code in cmd_code_list]
 
@@ -158,12 +179,12 @@ def main() -> None:
                     futures = []
                     for chunk in chunk_list(cmd_codes, CHUNK_SIZE):
                         param = {
-                            "typeCode": i_version_data.type_code,
-                            "freqCode": i_version_data.freq_code,
-                            "reporterCode": i_version_data.reporter_code,
+                            "typeCode": i_version.type_code,
+                            "freqCode": i_version.freq_code,
+                            "reporterCode": i_version.reporter_code,
                             "cmdCode": ','.join(chunk),
                             "flowCode": get_trade_regimes(),
-                            "period": i_version_data.period,
+                            "period": i_version.period,
                             "maxRecords": "100000",
                             "format": "JSON",
                             "breakdownMode": "classic",
@@ -174,18 +195,28 @@ def main() -> None:
                         futures.append(
                             executor.submit(
                                 record_row,
-                                param, i_version_data.dataset_checksum, subscription_key,
+                                param, i_version.dataset_checksum, subscription_key,
                             )
                         )
-
                     # Ожидаем завершения всех запросов
                     for future in as_completed(futures):
                         try:
                             future.result()  # Проверка на исключения
-                        except Exception as e:
-                            logging.error((f"Error in future: {e}"))
+                        except Exception as error:
+                            logging.error((f"Error in future: {error}"))
 
-            update_version_data(i_version_data.dataset_checksum)
+            update_version_data(i_version.dataset_checksum, False)  # Деактивировать скачивания
+
+            # Все DataSet скаченные с ошибкой возвращаем в первоначальное состояние
+            for i_error in get_error_request():
+                if i_error:
+                    print('215')
+                    update_version_data(i_error.dataset_checksum, True)  # Активировать скачивания если ошибка
+                    update_error_request(i_error.dataset_checksum)  # Снять активность записи в списке ошибок
+                    update_param_return(i_error.dataset_checksum, False)  # Снять активность, если ошибка
+                else:
+                    print('220')
+                    update_param_return(checksum_old.dataset_checksum, True)  # Если ошибка, то возвращаем прежние значения
 
     except Exception as error:
         logging.exception((f'Error in main: {error}'))
