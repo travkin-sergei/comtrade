@@ -137,7 +137,6 @@ def main() -> None:
         create_table()
         save_version_data(requests.get(f'{BASE_URL}/public/v1/getDA/C/A/HS', verify=False).json())
         save_partner_areas(requests.get(f'{BASE_URL}/files/v1/app/reference/partnerAreas.json', verify=False).json())
-        exit()
         save_trade_regimes(requests.get(f'{BASE_URL}/files/v1/app/reference/tradeRegimes.json', verify=False).json())
 
         for hs in get_hs_version_data():
