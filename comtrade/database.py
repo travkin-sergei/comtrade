@@ -22,7 +22,6 @@ load_dotenv()
 COMTRADE_KEY = os.getenv('COMTRADE_KEY').split(',')
 
 connection_string = os.getenv('CON_COMTRADE')
-print(connection_string)
 
 # Создание движка
 engine = create_engine(connection_string)

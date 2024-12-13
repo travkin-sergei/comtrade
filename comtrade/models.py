@@ -301,3 +301,82 @@ class VersionData(Base):
     dataset_checksum = Column(BigInteger, nullable=True, comment='{"name":"хеш сумма данных"}')
     first_released = Column(DateTime, nullable=True, comment='{"name":"дата публикации"}')
     last_released = Column(DateTime, nullable=True, comment='{"name":"дата обновления"}')
+
+
+class ErrorRequest(Base):
+    """Хранение запросов с ошибкой."""
+
+    __tablename__ = 'error_request'
+    __table_args__ = {
+        "schema": "comtrade",
+        'comment': """{
+            "name":"ошибки запросов",
+            "description":"Здесь хранятся ошибки возникшие при запросах",
+        }
+        """
+    }
+    id = Column(Integer, primary_key=True)
+    created_at = Column(
+        DateTime,
+        server_default=func.now(),
+        comment='{"name":"Дата создания записи"}'
+    )
+    updated_at = Column(
+        DateTime, server_default=func.now(),
+        server_onupdate=func.now(),
+        comment='{"name":"Дата обновления записи"}'
+    )
+    is_active = Column(
+        Boolean,
+        server_default=true(),
+        nullable=False,
+        comment='{"name":"Запись активна"}'
+    )
+    hash_address = Column(
+        String,
+        nullable=True,
+        comment='{"name":"хеш сумма адреса строки","description":"url+param+status+resp_code",}'
+    )
+    url = Column(String, nullable=False, comment='{"name":"Адрес запроса"}')
+    param = Column(Text, nullable=False, comment='{"name":"Параметры запроса"}')
+    status_code = Column(Integer, nullable=False, comment='{"name":"Статус код get запроса"}')
+    resp_code = Column(Integer, nullable=False, comment='{"name":"Код в теле ответа"}')
+
+
+class TradeRegimes(Base):
+    """Хранение запросов с ошибкой."""
+
+    __tablename__ = 'trade_regimes'
+    __table_args__ = {
+        "schema": "comtrade",
+        'comment': """{
+            "name":"торговые режимы",
+            "description":"Код торгового потока или подток (экспорт, реэкспорт, импорт, повторный импорт и т.д.)",
+            "npa":"https://comtradeapi.un.org/files/v1/app/reference/tradeRegimes.json",
+        }
+        """
+    }
+    id = Column(Integer, primary_key=True)
+    created_at = Column(
+        DateTime,
+        server_default=func.now(),
+        comment='{"name":"Дата создания записи"}'
+    )
+    updated_at = Column(
+        DateTime, server_default=func.now(),
+        server_onupdate=func.now(),
+        comment='{"name":"Дата обновления записи"}'
+    )
+    is_active = Column(
+        Boolean,
+        server_default=true(),
+        nullable=False,
+        comment='{"name":"Запись активна"}'
+    )
+    hash_address = Column(
+        String,
+        nullable=True,
+        comment='{"name":"хеш сумма адреса строки","description":"flow_code",}'
+    )
+    flow_code = Column(String, nullable=False, comment='{"name":"Код потока"}')
+    flow_desc = Column(String, nullable=False, comment='{"name":"Расшифровка кода торгового потока"}')
