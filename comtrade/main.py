@@ -1,7 +1,7 @@
 """
 Основной файл приложения.req
 https://comtradeapi.un.org/files/v1/app/reference/ListofReferences.json - список справочников.
-Для работы необходимо подставить ключи вместо звездочек в SUBSCRIPTION_KEYS.
+Для работы необходимо подставить ключи вместо звездочек в COMTRADE_KEY.
 Ключи необходимо получить на сайте comtrade.
 
 Из внутренней сети требуется отклить шифрование:
@@ -27,35 +27,34 @@ import hashlib
 import time
 import requests
 import logging
+import concurrent.futures
 from sqlalchemy.orm import sessionmaker
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from .database import session_sync, engine, COMTRADE_KEY
+from .config import session_sync, engine, COMTRADE_KEY
 from .models import HsCode, Base, ParamReturn
 from .orm import (
     add_param_return,
-    save_partner_areas,
-    save_version_data,
+    set_partner_areas,
+    set_version_data,
     get_hs_version_data,
-    save_hs_code,
+    set_hs_code,
     get_country_version_data,
     update_version_data,
     save_error_request,
     get_error_request,
-    update_error_request,
-    update_param_return,
-    save_trade_regimes,
+    set_error_request,
+    set_param_return,
+    set_trade_regimes,
     get_trade_regimes,
+    BASE_URL,
 )
 
 # Конфигурация
-CHUNK_SIZE = 100
+CHUNK_SIZE = 100  # смотри аннотацию выше
 MAX_COUNT = 100_000  # Лимит количества строк отображения
 TIMEOUT = 30  # Ограничение, указанное в документации API
-BASE_URL = 'https://comtradeapi.un.org'
-SUBSCRIPTION_KEYS = COMTRADE_KEY
+
 
 # Логирование
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 def create_table():
@@ -86,19 +85,21 @@ def chunk_list(data, chunk_size):
 
 def handle_api_response(response, dataset_checksum):
     """Обработка ответа API и сохранение данных."""
+
     try:
         response.raise_for_status()
         data = response.json()
         if data.get('count', 0) >= MAX_COUNT:
-            raise ValueError("Превышено значение MAX_COUNT. Настройте размер CHUNK_SIZE или фильтры.")
+            save_error_request(dataset_checksum, response.status_code, 413)
         add_param_return(data, dataset_checksum)
-    except (requests.HTTPError, ValueError) as e:
-        save_error_request(dataset_checksum, response.status_code, str(e))
-        logging.error(f"Ошибка API Response: {e}")
+    except (requests.HTTPError, ValueError) as error:
+        save_error_request(dataset_checksum, response.status_code, 404)
+        logging.error(f"Ошибка API Response: {error}")
 
 
 def record_row(param: dict, dataset_checksum: int, subscription_key: str) -> None:
     """Запись данных в таблицу ParamReturn."""
+
     url = f"{BASE_URL}/data/v1/get/{param['typeCode']}/{param['freqCode']}/HS"
     param.pop("typeCode")
     param.pop("freqCode")
@@ -106,7 +107,10 @@ def record_row(param: dict, dataset_checksum: int, subscription_key: str) -> Non
 
     try:
         response = requests.get(url, param, verify=False)
-        handle_api_response(response, dataset_checksum)
+        if response.status_code == 200:
+            handle_api_response(response, dataset_checksum)
+        else:
+            save_error_request(dataset_checksum, response.status_code, response.json().get('statusCode'))
     except requests.RequestException as error:
         logging.error(f"Ошибка в запросе: {error}")
     finally:
@@ -122,72 +126,77 @@ def main() -> None:
         create_table()
 
         # Шаг 2: Загрузка справочной информации
-        save_version_data(requests.get(f'{BASE_URL}/public/v1/getDA/C/A/HS', verify=False).json())
-        save_partner_areas(requests.get(f'{BASE_URL}/files/v1/app/reference/partnerAreas.json', verify=False).json())
-        save_trade_regimes(requests.get(f'{BASE_URL}/files/v1/app/reference/tradeRegimes.json', verify=False).json())
+        set_partner_areas()  # загружаем справочник территорий
+        set_trade_regimes()  # загружаем справочник торговых режимов
+        for i_da in ['M', 'A']:
+            set_version_data(i_da)  # загружаем справочник актуальных данных помесячный или годовой
+        for i_hs in get_hs_version_data():
+            set_hs_code(i_hs)  # загружаем справочник ТН ВЭД разных версий
 
-        # Шаг 3: Обработка версий HS
-        for hs in get_hs_version_data():
-            save_hs_code(requests.get(f'{BASE_URL}/files/v1/app/reference/{hs}.json', verify=False).json(), hs)
+        # Шаг 3: Обработка кодов стран
+        for i_new in get_country_version_data():
 
-        # Шаг 4: Обработка кодов стран
-        for i_version in get_country_version_data():
-            # Снятие активности с предыдущих записей
+            # получаем чек сумму устаревших данных
             with session_sync() as session:
-                checksum_old = session.query(ParamReturn.dataset_checksum).filter_by(
-                    is_active=True, period=i_version.period, reporter_code=i_version.reporter_code
+                i_old = session.query(ParamReturn.dataset_checksum).filter_by(
+                    is_active=True,
+                    period=i_new.period,
+                    reporter_code=i_new.reporter_code,
                 ).first()
-                if checksum_old:
-                    update_param_return(checksum=checksum_old.dataset_checksum, is_active=False)
+                if i_old:
+                    set_param_return(
+                        checksum=i_old.dataset_checksum,
+                        is_active=False,
+                    )
 
-            # Получение списка ТН ВЭД
+            # Получение списка по актуальной версии ТН ВЭД для страны
             with session_sync() as session:
                 cmd_code_list = session.query(HsCode.cmd_code).filter_by(
                     is_active=True,
-                    hs=i_version.classification_code
+                    hs=i_new.classification_code,
                 ).order_by(HsCode.cmd_code).all()
 
                 cmd_codes = [code.cmd_code for code in cmd_code_list]
 
-                # Параллельная обработка запросов
-                with ThreadPoolExecutor(max_workers=len(SUBSCRIPTION_KEYS)) as executor:
-                    futures = []
-                    for chunk in chunk_list(cmd_codes, CHUNK_SIZE):
-                        param = {
-                            "typeCode": i_version.type_code,
-                            "freqCode": i_version.freq_code,
-                            "reporterCode": i_version.reporter_code,
-                            "cmdCode": ','.join(chunk),
-                            "flowCode": get_trade_regimes(),
-                            "period": i_version.period,
-                            "maxRecords": "100000",
-                            "format": "JSON",
-                            "breakdownMode": "classic",
-                            "includeDesc": "True",
-                        }
-                        subscription_key = SUBSCRIPTION_KEYS[len(futures) % len(SUBSCRIPTION_KEYS)]
-                        futures.append(executor.submit(record_row, param, i_version.dataset_checksum, subscription_key))
+                # Перебираем список ТН ВЭД для страны
+                for chunk in chunk_list(cmd_codes, CHUNK_SIZE):
+                    param = {
+                        "typeCode": i_new.type_code,
+                        "freqCode": i_new.freq_code,
+                        "reporterCode": i_new.reporter_code,
+                        "cmdCode": ','.join(chunk),
+                        "flowCode": get_trade_regimes(),
+                        "period": i_new.period,
+                        "maxRecords": "100000",
+                        "format": "JSON",
+                        "breakdownMode": "classic",
+                        "includeDesc": "True",
+                    }
 
-                    # Ожидание завершения запросов
-                    for future in as_completed(futures):
-                        try:
-                            future.result()
-                        except Exception as error:
-                            logging.error(f"Ошибка в будущем потоке: {error}")
+                    # Используем ThreadPoolExecutor для параллельных запросов
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(COMTRADE_KEY)) as executor:
+                        futures = []
+                        for i_ikey in COMTRADE_KEY:
+                            futures.append(executor.submit(record_row, param, i_new.dataset_checksum, i_ikey))
 
-            # Обновление статуса версии данных
-            update_version_data(i_version.dataset_checksum, False)
+                        # Ждем завершения всех потоков
+                        for future in concurrent.futures.as_completed(futures):
+                            try:
+                                future.result()  # Получаем результат, чтобы поймать возможные исключения
+                            except Exception as error:
+                                logging.error(f"Ошибка в потоке: {error}")
 
             # Обработка ошибок загрузки
-            for i_error in get_error_request():
-                if i_error:
-                    update_version_data(i_error.dataset_checksum, True)
-                    update_error_request(i_error.dataset_checksum)
-                    update_param_return(i_error.dataset_checksum, False)
-                else:
-                    update_param_return(checksum_old.dataset_checksum, True)
+            if get_error_request(i_new.dataset_checksum) is None:  # ошибки не найдены
+                update_version_data(i_new.dataset_checksum, False)  # Отметить, что версия получена
+                set_param_return(i_old.dataset_checksum, False)  # Деактивировать старые записи
+                set_param_return(i_new.dataset_checksum, True)  # Активировать новые записи
+
+            set_error_request(i_new.dataset_checksum, False)  # деактивируем ошибку
 
     except Exception as error:
         logging.exception(f"Ошибка в main: {error}")
 
-main()
+
+if __name__ == '__main__':
+    main()

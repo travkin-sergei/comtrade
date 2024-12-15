@@ -247,7 +247,7 @@ class VersionData(Base):
         "schema": "comtrade",
         'comment': """{
             "name":"Версия данных",
-            "npa":"https://comtradeapi.un.org/public/v1/getDA/C/A/HS",
+            "npa":"https://comtradeapi.un.org/public/v1/getDA/C/{A или M}/HS",
         }
         """
     }
@@ -383,3 +383,39 @@ class ErrorRequest(Base):
     )
     status_code = Column(Integer, nullable=False, comment='{"name":"Статус код get запроса"}')
     resp_code = Column(Integer, nullable=False, comment='{"name":"Код в теле ответа"}')
+
+
+class HashDirectory(Base):
+    __tablename__ = 'hash_directory'
+    __table_args__ = {
+        "schema": "comtrade",
+        'comment': """{
+            "name":"Хеш суммы справочников",
+            "description":"Необходимо для быстрой проверки справочников первоисточника на изменение справочников.",
+        }
+        """
+    }
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(
+        DateTime,
+        server_default=func.now(),
+        comment='{"name":"Дата создания записи"}'
+    )
+    updated_at = Column(
+        DateTime, server_default=func.now(),
+        server_onupdate=func.now(),
+        comment='{"name":"Дата обновления записи"}'
+    )
+    is_active = Column(
+        Boolean,
+        server_default=true(),
+        nullable=False,
+        comment='{"name":"Запись активна"}'
+    )
+    hash_address = Column(
+        String,
+        nullable=True,
+        comment='{"name":"хеш сумма адреса строки","description":"cmd_code,hs",}'
+    )
+    table_name = Column(String, comment='{"name":"Название таблицы"}')
+    tab_hash = Column(String, comment='{"name":"хеш сумма таблицы"}')

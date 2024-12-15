@@ -1,5 +1,5 @@
 """
-Описани подключение к базе данных
+Подключение к базе данных и получение ключей.
 
 os.environ.get("AIRFLOW_CONN_SANDBOX_COMTRADE") - это простая строка подключения по типу:
     DB_HOST = "localhost"
@@ -10,12 +10,14 @@ os.environ.get("AIRFLOW_CONN_SANDBOX_COMTRADE") - это простая стро
 
    f'postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
 """
-
+import logging
 import os
 from dotenv import load_dotenv
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 load_dotenv()
 
