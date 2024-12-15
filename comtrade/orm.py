@@ -146,9 +146,12 @@ def add_param_return(initial_json: json, dataset_checksum: int) -> None:
                     stmt = ParamReturn(**new_row)
                     session.add(stmt)
                     session.commit()
-                    logging.info(f"def {sys._getframe().f_code.co_name} row add: {new_row.get("hash_address")}")
+                    logging.info(f'def {sys._getframe().f_code.co_name} row add: {new_row.get("hash_address")}')
                 else:
-                    logging.info(f"def {sys._getframe().f_code.co_name} row duplication: {new_row.get("hash_address")}")
+                    for key, value in new_row.items():
+                        setattr(old_obj, key, value)
+                    session.commit()
+                    logging.info(f'def {sys._getframe().f_code.co_name} row update: {new_row.get("hash_address")}')
         except Exception as error:
             logging.error(
                 f'"message" : "def {sys._getframe().f_code.co_name}. The database refuse to record data",'
@@ -421,7 +424,8 @@ def set_hs_code(i_hs) -> None:
                         logging.info(f"def {sys._getframe().f_code.co_name} row add: {new_row.get('hash_address')}")
                     else:
                         old_obj.is_active = True
-                        logging.info(f"def {sys._getframe().f_code.co_name} row duplication: {new_row.get('hash_address')}")
+                        logging.info(
+                            f"def {sys._getframe().f_code.co_name} row duplication: {new_row.get('hash_address')}")
                 except Exception as error:
                     logging.error(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
             session.commit()  # Перенесите commit сюда, чтобы он выполнялся один раз после всех изменений
