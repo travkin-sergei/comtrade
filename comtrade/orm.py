@@ -391,41 +391,40 @@ def set_hs_code(i_hs) -> None:
 
     if set_hash_directory(hs_version, data_json):
         with session_sync() as session:
-            session.query(HsCode).filter(hs=hs_version).update({"is_active": False})
+            session.query(HsCode).filter(HsCode.hs == hs_version).update({"is_active": False})
             session.commit()
-        for i_data in data_json:
-            try:
-                i_data["hash_address"] = hash_sum_256(
-                    i_data.get('id'),
-                    hs_version,
-                )
 
-                new_row = {
-                    "updated_at": datetime.now(),
-                    "is_active": True,
-                    "hash_address": i_data.get('hash_address'),
-                    "hs": hs_version,
-                    "cmd_code": i_data.get('id'),
-                    "text": i_data.get('text'),
-                    "parent": i_data.get('parent'),
-                    "is_leaf": i_data.get('isLeaf'),
-                    "aggr_level": i_data.get('aggrlevel'),
-                    "standard_unit_abbr": i_data.get('standardUnitAbbr'),
-                }
-                with session_sync() as session:
+            for i_data in data_json:
+                try:
+                    i_data["hash_address"] = hash_sum_256(
+                        i_data.get('id'),
+                        hs_version,
+                    )
+
+                    new_row = {
+                        "updated_at": datetime.now(),
+                        "is_active": True,
+                        "hash_address": i_data.get('hash_address'),
+                        "hs": hs_version,
+                        "cmd_code": i_data.get('id'),
+                        "text": i_data.get('text'),
+                        "parent": i_data.get('parent'),
+                        "is_leaf": i_data.get('isLeaf'),
+                        "aggr_level": i_data.get('aggrlevel'),
+                        "standard_unit_abbr": i_data.get('standardUnitAbbr'),
+                    }
+
                     old_obj = session.query(HsCode).filter_by(hash_address=new_row.get("hash_address")).first()
                     if old_obj is None:
                         stmt = HsCode(**new_row)
                         session.add(stmt)
-                        session.commit()
-
-                        logging.info(f"def {sys._getframe().f_code.co_name} row add: {new_row.get("hash_address")}")
+                        logging.info(f"def {sys._getframe().f_code.co_name} row add: {new_row.get('hash_address')}")
                     else:
-                        logging.info(
-                            f"def {sys._getframe().f_code.co_name} row duplication: {new_row.get("hash_address")}"
-                        )
-            except Exception as error:
-                logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
+                        old_obj.is_active = True
+                        logging.info(f"def {sys._getframe().f_code.co_name} row duplication: {new_row.get('hash_address')}")
+                except Exception as error:
+                    logging.error(f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}')
+            session.commit()  # Перенесите commit сюда, чтобы он выполнялся один раз после всех изменений
 
 
 def get_country_version_data() -> list:

@@ -143,11 +143,6 @@ def main() -> None:
                     period=i_new.period,
                     reporter_code=i_new.reporter_code,
                 ).first()
-                if i_old:
-                    set_param_return(
-                        checksum=i_old.dataset_checksum,
-                        is_active=False,
-                    )
 
             # Получение списка по актуальной версии ТН ВЭД для страны
             with session_sync() as session:
@@ -184,14 +179,15 @@ def main() -> None:
                             try:
                                 future.result()  # Получаем результат, чтобы поймать возможные исключения
                             except Exception as error:
+                                save_error_request(i_new.dataset_checksum, 500, 500)
                                 logging.error(f"Ошибка в потоке: {error}")
 
             # Обработка ошибок загрузки
             if get_error_request(i_new.dataset_checksum) is None:  # ошибки не найдены
                 update_version_data(i_new.dataset_checksum, False)  # Отметить, что версия получена
-                set_param_return(i_old.dataset_checksum, False)  # Деактивировать старые записи
+                if i_old:  # Деактивировать старые записи, если они есть
+                    set_param_return(i_old.dataset_checksum, False)
                 set_param_return(i_new.dataset_checksum, True)  # Активировать новые записи
-
             set_error_request(i_new.dataset_checksum, False)  # деактивируем ошибку
 
     except Exception as error:
