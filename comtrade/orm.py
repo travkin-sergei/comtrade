@@ -264,13 +264,16 @@ def set_version_data(i_da) -> None:
                     if old_obj is None:
                         # Если данные отсутствуют, записываем новую строку
                         session.add(VersionData(**new_row))
+                        session.commit()
                     elif old_obj.dataset_checksum != new_row.get("dataset_checksum"):
                         # Если контрольная сумма не совпадает, обновляем строку
                         session.query(VersionData).filter_by(
                             dataset_code=new_row.get("dataset_code"),
                         ).update(new_row)
+                        session.commit()
                     else:
-                        pass
+                        logging.error(
+                            (f'def {sys._getframe().f_code.co_name}. An incredible mistake'))
 
             except Exception as error:
                 logging.error(
