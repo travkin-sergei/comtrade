@@ -454,7 +454,7 @@ def get_country_version_data() -> list:
                 yield i_obj  # Возвращаем одну запись за раз
     except Exception as error:
         logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
-        yield from []  # Возвращаем пустой список в случае ошибки
+        exit()
 
 
 def save_error_request(checksum: int, status: int, resp_code: int) -> None:
@@ -486,6 +486,7 @@ def save_error_request(checksum: int, status: int, resp_code: int) -> None:
             logging.info(f"def {sys._getframe().f_code.co_name} row {action}: {hash_address}")
     except Exception as error:
         logging.error(f'def {sys._getframe().f_code.co_name}. The database refused to record data: {error}')
+        exit()
 
 
 def get_error_request(dataset_checksum: int) -> object:
@@ -500,7 +501,7 @@ def get_error_request(dataset_checksum: int) -> object:
             return old_obj  # Возвращаем список записей
     except Exception as error:
         logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
-        return []  # Возвращаем пустой список в случае ошибки
+        exit()
 
 
 def set_error_request(dataset_checksum: int, is_active: bool) -> None:
@@ -519,3 +520,4 @@ def set_error_request(dataset_checksum: int, is_active: bool) -> None:
                 logging.warning(f'No records found with dataset_checksum: {dataset_checksum}.')
     except Exception as error:
         logging.error(f'def {sys._getframe().f_code.co_name}. The database refused to record data: {error}')
+        exit()

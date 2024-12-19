@@ -19,9 +19,6 @@ verify=False по требованиям безопасности необход
 Вы у себя удалите этот параметр или переведите verify=True
 
 """
-"""
-Основной файл приложения для работы с API Comtrade.
-"""
 
 import hashlib
 import time
@@ -65,16 +62,19 @@ def create_table():
         session.commit()
     except Exception as error:
         logging.exception(f"Ошибка в create_table: {error}")
+        exit()
 
 
 def hash_sum_256(*args):
     """Создание SHA256 хеша для строки."""
+
     try:
         list_str = [str(i).lower() for i in args]
         list_union = '+'.join(list_str)
         return hashlib.sha256(list_union.encode()).hexdigest()
     except Exception as error:
         logging.exception(f"Ошибка в hash_sum_256: {error}")
+        exit()
 
 
 def chunk_list(data, chunk_size):
@@ -95,14 +95,14 @@ def handle_api_response(response, dataset_checksum):
     except (requests.HTTPError, ValueError) as error:
         save_error_request(dataset_checksum, response.status_code, 404)
         logging.error(f"Ошибка API Response: {error}")
+        exit()
 
 
-def record_row(param: dict, dataset_checksum: int, subscription_key: str) -> None:
+def record_row(for_url, param: dict, dataset_checksum: int, subscription_key: str) -> None:
     """Запись данных в таблицу ParamReturn."""
 
-    url = f"{BASE_URL}/data/v1/get/{param['typeCode']}/{param['freqCode']}/HS"
-    param.pop("typeCode")
-    param.pop("freqCode")
+    url = f"{BASE_URL}/data/v1/get/{for_url.get('typeCode')}/{for_url.get('typeCode')}/HS"
+
     param["subscription-key"] = subscription_key
 
     try:
@@ -113,6 +113,7 @@ def record_row(param: dict, dataset_checksum: int, subscription_key: str) -> Non
             save_error_request(dataset_checksum, response.status_code, response.json().get('statusCode'))
     except requests.RequestException as error:
         logging.error(f"Ошибка в запросе: {error}")
+        exit()
     finally:
         time.sleep(TIMEOUT)
 
@@ -135,7 +136,10 @@ def main() -> None:
 
         # Шаг 3: Обработка кодов стран
         for i_new in get_country_version_data():
-
+            for_url = {
+                "typeCode": i_new.type_code,
+                "freqCode": i_new.freq_code,
+            }
             # получаем чек сумму устаревших данных
             with session_sync() as session:
                 i_old = session.query(ParamReturn.dataset_checksum).filter_by(
@@ -156,8 +160,6 @@ def main() -> None:
                 # Перебираем список ТН ВЭД для страны
                 for chunk in chunk_list(cmd_codes, CHUNK_SIZE):
                     param = {
-                        "typeCode": i_new.type_code,
-                        "freqCode": i_new.freq_code,
                         "reporterCode": i_new.reporter_code,
                         "cmdCode": ','.join(chunk),
                         "flowCode": get_trade_regimes(),
@@ -172,7 +174,7 @@ def main() -> None:
                     with concurrent.futures.ThreadPoolExecutor(max_workers=len(COMTRADE_KEY)) as executor:
                         futures = []
                         for i_ikey in COMTRADE_KEY:
-                            futures.append(executor.submit(record_row, param, i_new.dataset_checksum, i_ikey))
+                            futures.append(executor.submit(record_row, for_url, param, i_new.dataset_checksum, i_ikey))
 
                         # Ждем завершения всех потоков
                         for future in concurrent.futures.as_completed(futures):
@@ -181,6 +183,7 @@ def main() -> None:
                             except Exception as error:
                                 save_error_request(i_new.dataset_checksum, 500, 500)
                                 logging.error(f"Ошибка в потоке: {error}")
+                                exit()
 
             # Обработка ошибок загрузки
             if get_error_request(i_new.dataset_checksum) is None:  # ошибки не найдены
@@ -192,6 +195,7 @@ def main() -> None:
 
     except Exception as error:
         logging.exception(f"Ошибка в main: {error}")
+        exit()
 
 
 if __name__ == '__main__':
