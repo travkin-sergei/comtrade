@@ -35,7 +35,6 @@ def hash_sum_256(*args) -> str:
         return hashlib.sha256(list_union.encode()).hexdigest()
     except Exception as error:
         logging.info((f'def {sys._getframe().f_code.co_name}: {error}'))
-        return ''
 
 
 def set_hash_directory(table_name: str, tab_list: json) -> bool:
@@ -160,7 +159,7 @@ def add_param_return(initial_json: json, dataset_checksum: int) -> None:
             )
 
 
-def set_param_return(checksum: int, is_active=False):
+def set_param_return(checksum: int, is_active=False) -> None:
     """Обновляем все записи, по dataset_checksum"""
 
     try:
@@ -454,7 +453,6 @@ def get_country_version_data() -> list:
                 yield i_obj  # Возвращаем одну запись за раз
     except Exception as error:
         logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
-        exit()
 
 
 def save_error_request(checksum: int, status: int, resp_code: int) -> None:
@@ -486,7 +484,6 @@ def save_error_request(checksum: int, status: int, resp_code: int) -> None:
             logging.info(f"def {sys._getframe().f_code.co_name} row {action}: {hash_address}")
     except Exception as error:
         logging.error(f'def {sys._getframe().f_code.co_name}. The database refused to record data: {error}')
-        exit()
 
 
 def get_error_request(dataset_checksum: int) -> object:
@@ -501,7 +498,6 @@ def get_error_request(dataset_checksum: int) -> object:
             return old_obj  # Возвращаем список записей
     except Exception as error:
         logging.error((f'def {sys._getframe().f_code.co_name}. The database refuse to record data: {error}'))
-        exit()
 
 
 def set_error_request(dataset_checksum: int, is_active: bool) -> None:
@@ -520,4 +516,3 @@ def set_error_request(dataset_checksum: int, is_active: bool) -> None:
                 logging.warning(f'No records found with dataset_checksum: {dataset_checksum}.')
     except Exception as error:
         logging.error(f'def {sys._getframe().f_code.co_name}. The database refused to record data: {error}')
-        exit()

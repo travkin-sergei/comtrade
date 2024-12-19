@@ -62,7 +62,6 @@ def create_table():
         session.commit()
     except Exception as error:
         logging.exception(f"Ошибка в create_table: {error}")
-        exit()
 
 
 def hash_sum_256(*args):
@@ -74,7 +73,6 @@ def hash_sum_256(*args):
         return hashlib.sha256(list_union.encode()).hexdigest()
     except Exception as error:
         logging.exception(f"Ошибка в hash_sum_256: {error}")
-        exit()
 
 
 def chunk_list(data, chunk_size):
@@ -95,7 +93,6 @@ def handle_api_response(response, dataset_checksum):
     except (requests.HTTPError, ValueError) as error:
         save_error_request(dataset_checksum, response.status_code, 404)
         logging.error(f"Ошибка API Response: {error}")
-        exit()
 
 
 def record_row(for_url, param: dict, dataset_checksum: int, subscription_key: str) -> None:
@@ -183,7 +180,6 @@ def main() -> None:
                             except Exception as error:
                                 save_error_request(i_new.dataset_checksum, 500, 500)
                                 logging.error(f"Ошибка в потоке: {error}")
-                                exit()
 
             # Обработка ошибок загрузки
             if get_error_request(i_new.dataset_checksum) is None:  # ошибки не найдены
@@ -195,7 +191,6 @@ def main() -> None:
 
     except Exception as error:
         logging.exception(f"Ошибка в main: {error}")
-        exit()
 
 
 if __name__ == '__main__':
