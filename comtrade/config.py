@@ -17,6 +17,11 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+BASE_URL = 'https://comtradeapi.un.org'
+CHUNK_SIZE = 100
+MAX_COUNT = 100_000  # Лимит количества строк отображения
+TIMEOUT = 30  # Ограничение, указанное в документации API
+
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 load_dotenv()

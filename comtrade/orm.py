@@ -12,7 +12,7 @@ from datetime import datetime
 
 import requests
 
-from .config import session_sync
+from .config import session_sync, BASE_URL
 from .models import (
     VersionData,
     ParamReturn,
@@ -23,7 +23,7 @@ from .models import (
     HashDirectory,
 )
 
-BASE_URL = 'https://comtradeapi.un.org'
+
 
 
 def hash_sum_256(*args) -> str:

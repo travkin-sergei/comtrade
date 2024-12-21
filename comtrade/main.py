@@ -24,9 +24,8 @@ import hashlib
 import time
 import requests
 import logging
-import concurrent.futures
 from sqlalchemy.orm import sessionmaker
-from .config import session_sync, engine, COMTRADE_KEY
+from .config import session_sync, engine, COMTRADE_KEY, BASE_URL, MAX_COUNT, CHUNK_SIZE, TIMEOUT
 from .models import HsCode, Base, ParamReturn
 from .orm import (
     add_param_return,
@@ -42,16 +41,7 @@ from .orm import (
     set_param_return,
     set_trade_regimes,
     get_trade_regimes,
-    BASE_URL,
 )
-
-# Конфигурация
-CHUNK_SIZE = 100  # смотри аннотацию выше
-MAX_COUNT = 100_000  # Лимит количества строк отображения
-TIMEOUT = 30  # Ограничение, указанное в документации API
-
-
-# Логирование
 
 
 def create_table():
@@ -82,43 +72,53 @@ def chunk_list(data, chunk_size):
 
 
 def handle_api_response(response, dataset_checksum):
-    """Обработка ответа API и сохранение данных."""
+    """Обработка данных полученных от сервера."""
 
     try:
         response.raise_for_status()
         data = response.json()
-        if data.get('count', 0) >= MAX_COUNT:
+        if data.get('count') >= MAX_COUNT:
             save_error_request(dataset_checksum, response.status_code, 413)
         add_param_return(data, dataset_checksum)
+
     except (requests.HTTPError, ValueError) as error:
         save_error_request(dataset_checksum, response.status_code, 404)
         logging.error(f"Ошибка API Response: {error}")
 
 
-def record_row(for_url, param: dict, dataset_checksum: int, subscription_key: str) -> None:
-    """Запись данных в таблицу ParamReturn."""
+def record_row(for_url, param: dict, subscription_key: str, dataset_checksum: int, ) -> None:
+    """Получение и обработка ответа сервера."""
 
-    url = f"{BASE_URL}/data/v1/get/{for_url.get('typeCode')}/{for_url.get('typeCode')}/HS"
+    url = f"{BASE_URL}/data/v1/get/{for_url.get('typeCode')}/{for_url.get('freqCode')}/HS"
 
     param["subscription-key"] = subscription_key
-
+    response = requests.get(url, param, verify=False)
     try:
-        response = requests.get(url, param, verify=False)
-        if response.status_code == 200:
-            handle_api_response(response, dataset_checksum)
-        else:
-            save_error_request(dataset_checksum, response.status_code, response.json().get('statusCode'))
+        info_error = response.json().get('error')
+
+        match response.status_code:
+            case 200:
+                handle_api_response(response, dataset_checksum)
+            case 400:
+                save_error_request(dataset_checksum, 400, info_error)
+            case 429:
+                save_error_request(dataset_checksum, 429, response.json().get('message'))
+            case 500:
+                save_error_request(dataset_checksum, 500, f'Сервер не не может обработа запрос {info_error}')
+            case _:
+                save_error_request(dataset_checksum, response.status_code, 'Ошибка неизвестна')
+                logging.error(f"{response.status_code} = {response.url}")
+                exit()
+
     except requests.RequestException as error:
-        logging.error(f"Ошибка в запросе: {error}")
+        logging.error(f"{response.url}: {error}")
         exit()
-    finally:
-        time.sleep(TIMEOUT)
 
 
 def main() -> None:
     """Основная функция для загрузки и обработки данных."""
-    session_sync = sessionmaker(bind=engine)
 
+    session_sync = sessionmaker(bind=engine)
     try:
         # Шаг 1: Инициализация базы данных
         create_table()
@@ -156,30 +156,28 @@ def main() -> None:
 
                 # Перебираем список ТН ВЭД для страны
                 for chunk in chunk_list(cmd_codes, CHUNK_SIZE):
+                    # https://comtradeapi.un.org/data/v1/get/C/A/HS?reporterCode=4&period=2019&partnerCode=156&cmdCode=01&includeDesc=false
+
                     param = {
                         "reporterCode": i_new.reporter_code,
-                        "cmdCode": ','.join(chunk),
-                        "flowCode": get_trade_regimes(),
                         "period": i_new.period,
+                        "cmdCode": ','.join(chunk),
+                        # "flowCode": get_trade_regimes(), # параметр можно не передавать
                         "maxRecords": "100000",
                         "format": "JSON",
                         "breakdownMode": "classic",
-                        "includeDesc": "True",
+                        "includeDesc": "false",
                     }
 
-                    # Используем ThreadPoolExecutor для параллельных запросов
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(COMTRADE_KEY)) as executor:
-                        futures = []
-                        for i_ikey in COMTRADE_KEY:
-                            futures.append(executor.submit(record_row, for_url, param, i_new.dataset_checksum, i_ikey))
-
-                        # Ждем завершения всех потоков
-                        for future in concurrent.futures.as_completed(futures):
+                    # Выполняем запрос последовательно для каждого ключа
+                    for i_ikey in COMTRADE_KEY:
+                        time.sleep(TIMEOUT / len(COMTRADE_KEY))  # 1 ключ не активен 30 секунд.
+                        if param.get("cmdCode"):
                             try:
-                                future.result()  # Получаем результат, чтобы поймать возможные исключения
+                                record_row(for_url, param, i_ikey, i_new.dataset_checksum)
                             except Exception as error:
-                                save_error_request(i_new.dataset_checksum, 500, 500)
-                                logging.error(f"Ошибка в потоке: {error}")
+                                save_error_request(i_new.dataset_checksum, None, 'Ошибка до запроса')
+                                logging.error(f"Ошибка при выполнении запроса: {error}")
 
             # Обработка ошибок загрузки
             if get_error_request(i_new.dataset_checksum) is None:  # ошибки не найдены
@@ -191,6 +189,7 @@ def main() -> None:
 
     except Exception as error:
         logging.exception(f"Ошибка в main: {error}")
+        exit()
 
 
 if __name__ == '__main__':

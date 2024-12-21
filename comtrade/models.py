@@ -382,7 +382,7 @@ class ErrorRequest(Base):
         comment='{"name":"хеш сумма данных", "description":"покаждой стране за отпределенный приод уникальная"}'
     )
     status_code = Column(Integer, nullable=False, comment='{"name":"Статус код get запроса"}')
-    resp_code = Column(Integer, nullable=False, comment='{"name":"Код в теле ответа"}')
+    message = Column(String, nullable=True, comment='{"name":"Комментарий к ошибке"}')
 
 
 class HashDirectory(Base):
