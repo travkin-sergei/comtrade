@@ -1,24 +1,33 @@
 # Обновление данных Comtrade
 
+## Запуск приложения
+Обновление pip
+```bash
+  python.exe -m pip install --upgrade pip
+```
+
 Устаноить зависимости
-
 ```bash
-pip install -r requirements.txt
+  pip install -r requirements.txt
 ```
 
-Запуск приложения
-
-```bash
- python -m comtrade.main
-```
-
-В корневой дириктори создать файл ".env"
-
+В корневой дириктори создать файл ".env" (Скопируй и вставь в терминал.)
 + Eсли количество ключей больше 1, то указать ключи через запятую
 
-```commandline
-CON_COMTRADE=postgresql://postgres:123456@localhost:5432/postgres
-COMTRADE_KEY=*******************
+```bash
+@"
+DEBUG=True
+COMTRADE_KEY=********************
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/world_statistics
+URL_BASE=**************
+URL_MONTH=**************
+URL_YEAR=**************
+"@ | Set-Content -Path .env
+```
+
+Непосредственный запуск приложения
+```bash
+  python -m comtrade.main
 ```
 
 

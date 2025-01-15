@@ -20,176 +20,185 @@ verify=False по требованиям безопасности необход
 
 """
 
-import hashlib
 import time
+from datetime import datetime
+import concurrent.futures
+import itertools
 import requests
-import logging
-from sqlalchemy.orm import sessionmaker
-from .config import session_sync, engine, COMTRADE_KEY, BASE_URL, MAX_COUNT, CHUNK_SIZE, TIMEOUT
-from .models import HsCode, Base, ParamReturn
-from .orm import (
-    add_param_return,
-    set_partner_areas,
+
+from comtrade.config import (
+    logg,
+    URL_MONTH,
+    MAX_COUNT,
+    URL_YEAR,
+    TIMEOUT,
+)
+from comtrade.models import VersionData, HS, Key
+from comtrade.functions import create_table
+from comtrade.orm import (
     set_version_data,
-    get_hs_version_data,
-    set_hs_code,
-    get_country_version_data,
-    update_version_data,
-    save_error_request,
-    get_error_request,
-    set_error_request,
-    set_param_return,
+    set_hs,
+    set_partner_areas,
+    set_world_statistic,
     set_trade_regimes,
-    get_trade_regimes,
+    set_transport_codes,
+    set_customs_codes,
+    set_plan_request, get_cmd_code,
 )
 
 
-def create_table():
-    """Создание таблиц базы данных."""
+class KeyBlockedException(Exception):
+    """Исключение, выбрасываемое при блокировке ключа."""
+    pass
+
+
+def fetch_data_with_retries(url, params, headers, dataset_checksum) -> bool:
+    """Извлечение данных с повторными попытками."""
+    new_row = {
+        "updated_at": datetime.now(),
+        "is_active": True,
+        "dataset_checksum": dataset_checksum,
+        "params": str(params),
+        "status_code": 0,
+        "count_row": 0,
+    }
+    params.update(
+        {
+            "maxRecords": MAX_COUNT,
+            "format": "JSON",
+            "breakdownMode": "classic",
+            "includeDesc": True,
+        }
+    )
+    for attempt in range(10):
+        logg.info(f"params: {params}.")
+        time.sleep(TIMEOUT)
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=TIMEOUT)
+            r_json = response.json()
+            new_row["status_code"] = response.status_code
+            new_row["count_row"] = max(r_json.get('count', 0), 0)
+            match response.status_code:
+                case 200:
+                    if new_row.get("count_row") < 100_000:
+                        new_row["is_active"] = False
+                        set_plan_request(new_row)
+                        set_world_statistic(r_json, dataset_checksum)
+                    return True
+                case 400 | 401 | 403 | 429:
+                    logg.error(f"Ошибка доступа: {response.status_code}, params: {params}.")
+                    Key.set(
+                        {
+                            "hash_address": headers.get("Ocp-Apim-Subscription-Key"),
+                            "is_active": False,
+                            "status": response.status_code,
+                        }
+                    )
+                    raise KeyBlockedException(f"Ключ заблокирован с кодом {response.status_code}.")
+                case 500:
+                    logg.error(f"Ошибка API Response: {response.status_code}, params: {params}.")
+                case _:
+                    logg.error(f"Неизвестная ошибка API: {response.status_code}, params: {params}.")
+                    Key.set(
+                        {
+                            "hash_address": headers.get("Ocp-Apim-Subscription-Key"),
+                            "is_active": False,
+                            "status": 0,
+                        }
+                    )
+                    raise KeyBlockedException("Ключ заблокирован из-за неизвестной ошибки.")
+            set_plan_request(new_row)
+            time.sleep(TIMEOUT)
+        except KeyBlockedException:
+            raise  # Повторно выбрасываем исключение, чтобы завершить поток
+        except requests.exceptions.ConnectionError as conn_err:
+            set_plan_request(new_row)
+            logg.error(f"Connection error occurred: {conn_err}, params: {params}.")
+            time.sleep(TIMEOUT * 5)
+        except requests.exceptions.Timeout as timeout_err:
+            set_plan_request(new_row)
+            logg.error(f"Timeout error occurred: {timeout_err}, params: {params}.")
+            time.sleep(TIMEOUT * 5)
+        except requests.exceptions.HTTPError as http_err:
+            set_plan_request(new_row)
+            logg.error(f"HTTP error occurred: {http_err}, params: {params}.")
+            time.sleep(TIMEOUT * 5)
+    logg.error(f"Exceeded maximum retries for URL: {url}, params: {params}.")
+    return False
+
+
+def get_data(i_vd, i_key):
+    """5. Получение данных торговой статистики."""
     try:
-        session = session_sync()
-        Base.metadata.create_all(engine)
-        session.commit()
-    except Exception as error:
-        logging.exception(f"Ошибка в create_table: {error}")
+        if i_vd is None:
+            logg.warning('Нет данных для обработки.')
+        else:
+            for i_hs in get_cmd_code(i_vd.classification_code):
+                headers = {
+                    'Cache-Control': 'no-cache',
+                    'Ocp-Apim-Subscription-Key': i_key,
+                }
+                params = {
+                    "reporterCode": i_vd.reporter_code,
+                    "period": i_vd.period,
+                    "cmdCode": ','.join(i_hs),
+                }
+                url = URL_YEAR if i_vd.freq_code == 'A' else URL_MONTH
+                fetch_data_with_retries(url, params, headers, i_vd.dataset_checksum)
+        logg.info(f"{i_vd.period, i_vd.reporter_code}. Deactivating VersionData with hash_address: {i_vd.hash_address}")
+        VersionData.set({"is_active": False, "hash_address": i_vd.hash_address})
+    except KeyBlockedException as e:
+        logg.error(f"Поток завершен из-за блокировки ключа: {e}")
 
 
-def hash_sum_256(*args):
-    """Создание SHA256 хеша для строки."""
+def load_directory():
+    """Загрузка справочников."""
 
-    try:
-        list_str = [str(i).lower() for i in args]
-        list_union = '+'.join(list_str)
-        return hashlib.sha256(list_union.encode()).hexdigest()
-    except Exception as error:
-        logging.exception(f"Ошибка в hash_sum_256: {error}")
-
-
-def chunk_list(data, chunk_size):
-    """Разделение списка на подсписки заданного размера."""
-    for i in range(0, len(data), chunk_size):
-        yield data[i:i + chunk_size]
-
-
-def handle_api_response(response, dataset_checksum):
-    """Обработка данных полученных от сервера."""
-
-    try:
-        response.raise_for_status()
-        data = response.json()
-        if data.get('count') >= MAX_COUNT:
-            save_error_request(dataset_checksum, response.status_code, 413)
-        add_param_return(data, dataset_checksum)
-
-    except (requests.HTTPError, ValueError) as error:
-        save_error_request(dataset_checksum, response.status_code, 404)
-        logging.error(f"Ошибка API Response: {error}")
+    # 2.1) Наполнение справочников версий данных
+    version = ['A', 'M']
+    for i_da in version:
+        set_version_data(i_da)
+    # 2.2) Наполнение версий справочников гармонизированной системы
+    hs_list = ['H0', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']
+    for i_hs in hs_list:
+        set_hs(i_hs)
+    # 2.3) Наполнение справочника территорий
+    set_partner_areas('partnerAreas')
+    # 2.4) Наполнение справочника торговых режимов
+    set_trade_regimes('tradeRegimes')
+    # 2.3) Наполнение справочника видов транспорта
+    set_transport_codes('ModeOfTransportCodes')
+    # 2.4) Наполнение справочника таможенных процедур
+    set_customs_codes('CustomsCodes')
 
 
-def record_row(for_url, param: dict, subscription_key: str, dataset_checksum: int, ) -> None:
-    """Получение и обработка ответа сервера."""
-
-    url = f"{BASE_URL}/data/v1/get/{for_url.get('typeCode')}/{for_url.get('freqCode')}/HS"
-
-    param["subscription-key"] = subscription_key
-    response = requests.get(url, param, verify=False)
-    try:
-        info_error = response.json().get('error')
-
-        match response.status_code:
-            case 200:
-                handle_api_response(response, dataset_checksum)
-            case 400:
-                save_error_request(dataset_checksum, 400, info_error)
-            case 429:
-                save_error_request(dataset_checksum, 429, response.json().get('message'))
-            case 500:
-                save_error_request(dataset_checksum, 500, f'Сервер не не может обработа запрос {info_error}')
-            case _:
-                save_error_request(dataset_checksum, response.status_code, 'Ошибка неизвестна')
-                logging.error(f"{response.status_code} = {response.url}")
-                exit()
-
-    except requests.RequestException as error:
-        logging.error(f"{response.url}: {error}")
-        exit()
-
-
-def main() -> None:
-    """Основная функция для загрузки и обработки данных."""
-
-    session_sync = sessionmaker(bind=engine)
-    try:
-        # Шаг 1: Инициализация базы данных
-        create_table()
-
-        # Шаг 2: Загрузка справочной информации
-        set_partner_areas()  # загружаем справочник территорий
-        set_trade_regimes()  # загружаем справочник торговых режимов
-        for i_da in ['M', 'A']:
-            set_version_data(i_da)  # загружаем справочник актуальных данных помесячный или годовой
-        for i_hs in get_hs_version_data():
-            set_hs_code(i_hs)  # загружаем справочник ТН ВЭД разных версий
-
-        # Шаг 3: Обработка кодов стран
-        for i_new in get_country_version_data():
-            for_url = {
-                "typeCode": i_new.type_code,
-                "freqCode": i_new.freq_code,
-            }
-            # получаем чек сумму устаревших данных
-            with session_sync() as session:
-                i_old = session.query(ParamReturn.dataset_checksum).filter_by(
-                    is_active=True,
-                    period=i_new.period,
-                    reporter_code=i_new.reporter_code,
-                ).first()
-
-            # Получение списка по актуальной версии ТН ВЭД для страны
-            with session_sync() as session:
-                cmd_code_list = session.query(HsCode.cmd_code).filter_by(
-                    is_active=True,
-                    hs=i_new.classification_code,
-                ).order_by(HsCode.cmd_code).all()
-
-                cmd_codes = [code.cmd_code for code in cmd_code_list]
-
-                # Перебираем список ТН ВЭД для страны
-                for chunk in chunk_list(cmd_codes, CHUNK_SIZE):
-                    # https://comtradeapi.un.org/data/v1/get/C/A/HS?reporterCode=4&period=2019&partnerCode=156&cmdCode=01&includeDesc=false
-
-                    param = {
-                        "reporterCode": i_new.reporter_code,
-                        "period": i_new.period,
-                        "cmdCode": ','.join(chunk),
-                        # "flowCode": get_trade_regimes(), # параметр можно не передавать
-                        "maxRecords": "100000",
-                        "format": "JSON",
-                        "breakdownMode": "classic",
-                        "includeDesc": "false",
-                    }
-
-                    # Выполняем запрос последовательно для каждого ключа
-                    for i_ikey in COMTRADE_KEY:
-                        time.sleep(TIMEOUT / len(COMTRADE_KEY))  # 1 ключ не активен 30 секунд.
-                        if param.get("cmdCode"):
-                            try:
-                                record_row(for_url, param, i_ikey, i_new.dataset_checksum)
-                            except Exception as error:
-                                save_error_request(i_new.dataset_checksum, None, 'Ошибка до запроса')
-                                logging.error(f"Ошибка при выполнении запроса: {error}")
-
-            # Обработка ошибок загрузки
-            if get_error_request(i_new.dataset_checksum) is None:  # ошибки не найдены
-                update_version_data(i_new.dataset_checksum, False)  # Отметить, что версия получена
-                if i_old:  # Деактивировать старые записи, если они есть
-                    set_param_return(i_old.dataset_checksum, False)
-                set_param_return(i_new.dataset_checksum, True)  # Активировать новые записи
-            set_error_request(i_new.dataset_checksum, False)  # деактивируем ошибку
-
-    except Exception as error:
-        logging.exception(f"Ошибка в main: {error}")
-        exit()
+def main():
+    """Основной код программы."""
+    # 1) Создание таблиц в базе данных
+    create_table()
+    # 2) Наполнение справочников
+    load_directory()
+    # 3) Запрос данных торговой статистики
+    # 3.1) Запрос списка необходимых стран
+    version_data_objects = list(VersionData.get_all({"is_active": True, "period": "2023"}))
+    logg.info(f"Найдено объектов: {len(version_data_objects)}")
+    num_threads = 2
+    for batch in itertools.zip_longest(*[iter(version_data_objects)] * num_threads, fillvalue=None):
+        batch = [vd for vd in batch if vd is not None]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = []
+            key_list = [i_key.key for i_key in Key.get_all({"is_active": True})]
+            for i, i_vd in enumerate(batch):
+                i_key = key_list[i % num_threads]
+                futures.append(executor.submit(get_data, i_vd, i_key))
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    result = future.result()
+                    logg.info(f"Задача завершена с результатом: {result}")
+                except KeyBlockedException as error:
+                    logg.error(f"Ошибка при выполнении задачи: {error}")
+                except Exception as error:
+                    logg.error(f"Неожиданная ошибка: {error}")
 
 
 if __name__ == '__main__':
